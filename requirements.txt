@@ -1,0 +1,6 @@
+pandas
+numpy
+ucimlrepo
+matplotlib
+plotly
+streamlit
