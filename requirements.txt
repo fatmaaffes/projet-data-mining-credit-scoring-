@@ -4,3 +4,10 @@ ucimlrepo
 matplotlib
 plotly
 streamlit
+scikit-learn
+xgboost
+shap
+lime
+fastapi
+uvicorn[standard]
+requests
