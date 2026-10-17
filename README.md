@@ -1,64 +1,104 @@
 # Credit Scoring explicable
 
-Projet de Data Mining — application web interactive de classification explicable.
+Projet Challenge 1 — Application Web Interactive de Classification Explicable.
 
-## Cas métier
+Cas métier : scoring de crédit avec Statlog German Credit Data (UCI, id=144).
 
-Scoring de crédit à partir du jeu Statlog German Credit Data (UCI, id=144).
-
-Cible utilisée dans le projet :
-
+Cible :
 - default = 0 : bon payeur
 - default = 1 : mauvais payeur / défaut
 
-## État actuel
+## Modules
 
-### Module 1 — Données & EDA
+1. Données & EDA
+   - téléchargement automatique UCI
+   - aperçu, dictionnaire, valeurs manquantes, proportion des classes
+   - statistiques descriptives
+   - distributions, boxplots, taux de défaut par modalité
+   - corrélations
 
-Implémenté :
+2. Préparation
+   - choix des variables X / cible y
+   - imputation configurable
+   - one-hot encoding des variables catégorielles
+   - normalisation configurable
+   - séparation train/test stratifiée et paramétrable
 
-- téléchargement automatique via ucimlrepo
-- renommage lisible des 20 variables
-- mapping de la cible
-- aperçu des données
-- dictionnaire des variables
-- contrôle des valeurs manquantes
-- proportion des classes
-- statistiques descriptives
-- histogrammes et boxplots
-- analyse des variables numériques par rapport à la cible
-- fréquences des variables catégorielles
-- taux de défaut par modalité
-- matrice de corrélation de Pearson
+3. Modélisation
+   - Régression logistique
+   - Arbre de décision
+   - kNN
+   - Random Forest
+   - XGBoost
+   - hyperparamètres configurables
+   - optimisation optionnelle par RandomizedSearchCV
 
-Les modules 2 à 6 seront ajoutés progressivement.
+4. Évaluation
+   - AUC-ROC, précision, rappel, F1, PR-AUC
+   - Gini et KS pour le scoring crédit
+   - ROC superposées
+   - courbes précision-rappel
+   - matrice de confusion
+   - seuil de décision interactif
 
-## Structure
+5. Explainable AI
+   - importance native
+   - permutation importance
+   - SHAP global et local
+   - dépendance SHAP sur la variable principale
+   - LIME local
+   - synthèse automatique
+   - rappel sur variables sensibles et équité
 
-app/app.py : interface Streamlit
-api/main.py : API FastAPI
-src/data.py : chargement et logique du Module 1
-src/preprocessing.py : préparation des données
-src/evaluation.py : évaluation
-src/explainability.py : XAI
-src/models/ : modèles de classification
+6. FastAPI
+   - GET /health
+   - POST /predict
+   - POST /explain
+   - documentation Swagger automatique sur /docs
 
 ## Installation
 
-Sous PowerShell :
+PowerShell :
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 
-## Lancer l'application
+## Lancer Streamlit
 
-Depuis la racine du projet :
+Depuis la racine :
 
 streamlit run app/app.py
 
-## Principe pédagogique
+## Lancer FastAPI
 
-Le notebook sert de laboratoire pour comprendre les données et expérimenter.
-Le code dans src/ contient la logique réutilisable.
-L'application Streamlit expose progressivement les six modules demandés par le projet.
+Dans un deuxième terminal :
+
+.\.venv\Scripts\Activate.ps1
+uvicorn api.main:app --reload
+
+Swagger :
+http://127.0.0.1:8000/docs
+
+## Architecture
+
+app/app.py : interface Streamlit
+api/main.py : API FastAPI
+src/data.py : chargement et EDA
+src/preprocessing.py : préparation ML
+src/training.py : entraînement et tuning
+src/evaluation.py : métriques crédit et courbes
+src/explainability.py : SHAP, LIME, importances
+src/models/ : un fichier par modèle
+
+## Démarche
+
+Le notebook reste le laboratoire d'exploration et d'apprentissage.
+Le dossier src contient la logique réutilisable.
+Streamlit orchestre les six modules.
+FastAPI expose la prédiction et l'interprétation locale.
+
+## Déploiement
+
+L'application Streamlit peut être déployée sur Streamlit Community Cloud.
+L'API FastAPI doit être déployée séparément puis son URL peut être saisie dans le Module 6 de l'application.
