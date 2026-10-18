@@ -383,6 +383,21 @@ if module == "1 · Données & EDA":
             "Plus l'écart entre modalités est marqué, plus cette variable peut aider le modèle à distinguer les profils de risque. "
             "Cette association reste descriptive et ne doit pas être interprétée comme une relation causale."
         )
+        if feature == "checking_status":
+            status_rates = default_rate.set_index("checking_status")["taux_defaut"].to_dict()
+            ordered_status = [
+                code for code in ["A11", "A12", "A13", "A14"]
+                if code in status_rates
+            ]
+            if ordered_status:
+                st.success(
+                    "Exemple particulièrement discriminant — checking_status : "
+                    + " · ".join(
+                        f"{code} = {status_rates[code]:.2f}%"
+                        for code in ordered_status
+                    )
+                    + ". Ces écarts montrent pourquoi cette variable peut être informative pour le scoring."
+                )
 
     with tab_target:
         st.subheader("Répartition de la cible")
@@ -655,6 +670,8 @@ elif module == "2 · Préparation":
         st.session_state.pop("model_results", None)
         st.session_state.pop("prepared_data", None)
         st.session_state.pop("threshold_recommendations", None)
+        st.session_state.pop("threshold_oof_probs", None)
+        st.session_state.pop("last_threshold_recommendation", None)
         st.success(
             "Configuration enregistrée. Les anciens modèles ont été invalidés afin qu'ils soient réentraînés avec cette préparation."
         )
@@ -1293,9 +1310,10 @@ elif module == "4 · Évaluation":
                 st.session_state.threshold_oof_probs[selected_model] = (
                     cross_validated_probabilities(
                         result.estimator,
-                        prepared.X_train,
+                        prepared.X_train_raw,
                         prepared.y_train,
                         cv_folds=cv_folds_for_threshold,
+                        preprocessor=prepared.preprocessor,
                     )
                 )
 
@@ -1338,9 +1356,9 @@ elif module == "4 · Évaluation":
         )
         threshold = st.slider(
             "Seuil de décision",
-            0.05,
-            0.95,
-            0.01,
+            min_value=0.05,
+            max_value=0.95,
+            step=0.01,
             key="eval_threshold",
         )
 
