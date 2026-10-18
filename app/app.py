@@ -698,6 +698,11 @@ elif module == "2.1 · Conclusion Préparation":
 
 elif module == "3 · Modélisation":
     st.header("Module 3 — Modélisation et comparaison")
+    module_intro(
+        "Entraîner plusieurs classifieurs, régler leurs hyperparamètres et comparer leur capacité à prédire le défaut.",
+        "Régression logistique, arbre de décision, kNN, Random Forest, XGBoost et optimisation automatique par RandomizedSearchCV.",
+        "Aucun algorithme n'est supposé meilleur à l'avance : on compare plusieurs familles de modèles sur le même protocole pour retenir le meilleur compromis.",
+    )
 
     config = st.session_state.prep_config
     prepared = get_prepared(
@@ -807,166 +812,220 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
 
     tune = st.checkbox(
         "Optimiser automatiquement les hyperparamètres",
-        value=False,
-        help="Utilise RandomizedSearchCV avec validation croisée et AUC-ROC.",
+        value=True,
+        help="RandomizedSearchCV teste plusieurs configurations par validation croisée sur le train et retient la meilleure selon l'AUC-ROC.",
     )
 
     if tune:
-        n_iter = st.slider("Nombre de configurations testées par modèle", 3, 15, 8)
-        cv_folds = st.slider("Nombre de folds", 3, 5, 5)
+        n_iter = st.slider(
+            "Nombre de configurations testées par modèle",
+            3,
+            15,
+            8,
+            help="Nombre de combinaisons d'hyperparamètres échantillonnées par RandomizedSearchCV.",
+        )
+        cv_folds = st.slider(
+            "Nombre de folds",
+            3,
+            5,
+            5,
+            help="Le train est découpé en folds stratifiés pour obtenir une estimation plus stable des performances.",
+        )
+        st.caption(
+            f"Avec {n_iter} configurations et {cv_folds} folds, chaque modèle peut nécessiter jusqu'à environ {n_iter * cv_folds} entraînements pendant la recherche."
+        )
     else:
         n_iter = 8
         cv_folds = 5
+        st.warning(
+            "Optimisation désactivée : les valeurs saisies ci-dessous seront utilisées directement."
+        )
 
     model_params = {}
 
     for name in selected_models:
         with st.expander(f"Hyperparamètres — {name}"):
             if name == "Régression logistique":
+                lr_c = st.number_input(
+                    "C",
+                    min_value=0.001,
+                    max_value=100.0,
+                    value=1.0,
+                    step=0.1,
+                    key="lr_c",
+                )
+                st.caption("C — contrôle inversement la régularisation : petit C = modèle plus contraint ; grand C = modèle plus libre.")
+                lr_penalty = st.selectbox(
+                    "penalty",
+                    ["l2", "l1"],
+                    key="lr_penalty",
+                )
+                st.caption("penalty — choisit le type de régularisation : L2 réduit les coefficients ; L1 peut en mettre certains à zéro.")
+                lr_weight = st.selectbox(
+                    "class_weight",
+                    [None, "balanced"],
+                    key="lr_weight",
+                )
+                st.caption("class_weight — balanced donne davantage de poids à la classe minoritaire pendant l'apprentissage.")
                 model_params[name] = {
-                    "C": st.number_input(
-                        "C",
-                        min_value=0.001,
-                        max_value=100.0,
-                        value=1.0,
-                        step=0.1,
-                        key="lr_c",
-                    ),
-                    "penalty": st.selectbox(
-                        "penalty",
-                        ["l2", "l1"],
-                        key="lr_penalty",
-                    ),
-                    "class_weight": st.selectbox(
-                        "class_weight",
-                        [None, "balanced"],
-                        key="lr_weight",
-                    ),
+                    "C": lr_c,
+                    "penalty": lr_penalty,
+                    "class_weight": lr_weight,
                 }
 
             elif name == "Arbre de décision":
-                depth = st.slider(
+                dt_depth = st.slider(
                     "max_depth (0 = illimité)",
                     0,
                     20,
                     5,
                     key="dt_depth",
                 )
+                st.caption("max_depth — profondeur maximale de l'arbre ; la limiter aide à éviter le surapprentissage.")
+                dt_split = st.slider(
+                    "min_samples_split",
+                    2,
+                    20,
+                    2,
+                    key="dt_split",
+                )
+                st.caption("min_samples_split — nombre minimal d'observations requis pour diviser encore un nœud.")
+                dt_criterion = st.selectbox(
+                    "criterion",
+                    ["gini", "entropy"],
+                    key="dt_criterion",
+                )
+                st.caption("criterion — mesure utilisée pour choisir les coupures qui rendent les groupes plus homogènes.")
+                dt_weight = st.selectbox(
+                    "class_weight",
+                    [None, "balanced"],
+                    key="dt_weight",
+                )
+                st.caption("class_weight — permet d'accorder davantage d'importance à la classe défaut.")
                 model_params[name] = {
-                    "max_depth": None if depth == 0 else depth,
-                    "min_samples_split": st.slider(
-                        "min_samples_split",
-                        2,
-                        20,
-                        2,
-                        key="dt_split",
-                    ),
-                    "criterion": st.selectbox(
-                        "criterion",
-                        ["gini", "entropy"],
-                        key="dt_criterion",
-                    ),
-                    "class_weight": st.selectbox(
-                        "class_weight",
-                        [None, "balanced"],
-                        key="dt_weight",
-                    ),
+                    "max_depth": None if dt_depth == 0 else dt_depth,
+                    "min_samples_split": dt_split,
+                    "criterion": dt_criterion,
+                    "class_weight": dt_weight,
                 }
 
             elif name == "kNN":
+                knn_k = st.slider(
+                    "n_neighbors",
+                    3,
+                    31,
+                    7,
+                    step=2,
+                    key="knn_k",
+                )
+                st.caption("n_neighbors (k) — nombre de voisins utilisés pour décider la classe d'un nouveau client.")
+                knn_weights = st.selectbox(
+                    "weights",
+                    ["uniform", "distance"],
+                    key="knn_weights",
+                )
+                st.caption("weights — uniform donne le même poids aux voisins ; distance favorise les voisins les plus proches.")
+                knn_p = st.selectbox(
+                    "distance p",
+                    [1, 2],
+                    index=1,
+                    key="knn_p",
+                )
+                st.caption("p — p=1 utilise la distance de Manhattan ; p=2 la distance euclidienne.")
                 model_params[name] = {
-                    "n_neighbors": st.slider(
-                        "n_neighbors",
-                        3,
-                        31,
-                        7,
-                        step=2,
-                        key="knn_k",
-                    ),
-                    "weights": st.selectbox(
-                        "weights",
-                        ["uniform", "distance"],
-                        key="knn_weights",
-                    ),
-                    "p": st.selectbox(
-                        "distance p",
-                        [1, 2],
-                        index=1,
-                        key="knn_p",
-                    ),
+                    "n_neighbors": knn_k,
+                    "weights": knn_weights,
+                    "p": knn_p,
                 }
 
             elif name == "Random Forest":
-                depth = st.slider(
+                rf_n = st.slider(
+                    "n_estimators",
+                    100,
+                    700,
+                    300,
+                    step=50,
+                    key="rf_n",
+                )
+                st.caption("n_estimators — nombre d'arbres combinés dans la forêt.")
+                rf_depth = st.slider(
                     "max_depth (0 = illimité)",
                     0,
                     20,
                     0,
                     key="rf_depth",
                 )
+                st.caption("max_depth — limite la profondeur de chaque arbre pour contrôler sa complexité.")
+                rf_split = st.slider(
+                    "min_samples_split",
+                    2,
+                    20,
+                    2,
+                    key="rf_split",
+                )
+                st.caption("min_samples_split — minimum d'observations requis pour poursuivre une division.")
+                rf_weight = st.selectbox(
+                    "class_weight",
+                    [None, "balanced"],
+                    key="rf_weight",
+                )
+                st.caption("class_weight — ajuste l'importance relative des bons et mauvais payeurs.")
                 model_params[name] = {
-                    "n_estimators": st.slider(
-                        "n_estimators",
-                        100,
-                        700,
-                        300,
-                        step=50,
-                        key="rf_n",
-                    ),
-                    "max_depth": None if depth == 0 else depth,
-                    "min_samples_split": st.slider(
-                        "min_samples_split",
-                        2,
-                        20,
-                        2,
-                        key="rf_split",
-                    ),
-                    "class_weight": st.selectbox(
-                        "class_weight",
-                        [None, "balanced"],
-                        key="rf_weight",
-                    ),
+                    "n_estimators": rf_n,
+                    "max_depth": None if rf_depth == 0 else rf_depth,
+                    "min_samples_split": rf_split,
+                    "class_weight": rf_weight,
                 }
 
             elif name == "XGBoost":
+                xgb_n = st.slider(
+                    "n_estimators",
+                    100,
+                    700,
+                    250,
+                    step=50,
+                    key="xgb_n",
+                )
+                st.caption("n_estimators — nombre d'arbres ajoutés séquentiellement.")
+                xgb_depth = st.slider(
+                    "max_depth",
+                    2,
+                    10,
+                    3,
+                    key="xgb_depth",
+                )
+                st.caption("max_depth — complexité maximale de chaque arbre de boosting.")
+                xgb_lr = st.select_slider(
+                    "learning_rate",
+                    options=[0.01, 0.03, 0.05, 0.1, 0.2],
+                    value=0.05,
+                    key="xgb_lr",
+                )
+                st.caption("learning_rate — importance de chaque nouvel arbre ; plus faible = apprentissage plus progressif.")
+                xgb_sub = st.slider(
+                    "subsample",
+                    0.5,
+                    1.0,
+                    0.9,
+                    0.05,
+                    key="xgb_sub",
+                )
+                st.caption("subsample — proportion des observations utilisée pour construire chaque nouvel arbre.")
+                xgb_col = st.slider(
+                    "colsample_bytree",
+                    0.5,
+                    1.0,
+                    0.9,
+                    0.05,
+                    key="xgb_col",
+                )
+                st.caption("colsample_bytree — proportion des variables disponible pour chaque arbre.")
                 model_params[name] = {
-                    "n_estimators": st.slider(
-                        "n_estimators",
-                        100,
-                        700,
-                        250,
-                        step=50,
-                        key="xgb_n",
-                    ),
-                    "max_depth": st.slider(
-                        "max_depth",
-                        2,
-                        10,
-                        3,
-                        key="xgb_depth",
-                    ),
-                    "learning_rate": st.select_slider(
-                        "learning_rate",
-                        options=[0.01, 0.03, 0.05, 0.1, 0.2],
-                        value=0.05,
-                        key="xgb_lr",
-                    ),
-                    "subsample": st.slider(
-                        "subsample",
-                        0.5,
-                        1.0,
-                        0.9,
-                        0.05,
-                        key="xgb_sub",
-                    ),
-                    "colsample_bytree": st.slider(
-                        "colsample_bytree",
-                        0.5,
-                        1.0,
-                        0.9,
-                        0.05,
-                        key="xgb_col",
-                    ),
+                    "n_estimators": xgb_n,
+                    "max_depth": xgb_depth,
+                    "learning_rate": xgb_lr,
+                    "subsample": xgb_sub,
+                    "colsample_bytree": xgb_col,
                 }
 
     if not selected_models:
@@ -984,17 +1043,73 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
 
         st.session_state.model_results = results
         st.session_state.prepared_data = prepared
+        st.session_state.model_cv_folds = cv_folds
+        st.session_state.threshold_recommendations = {}
         st.success("Entraînement terminé.")
 
     if "model_results" in st.session_state:
         results = st.session_state.model_results
         table = comparison_table(results)
-        st.subheader("Comparaison au seuil 0,50")
+        st.subheader("Comparaison des modèles — jeu de test")
+        st.caption(
+            "AUC-ROC, Gini, KS et PR-AUC évaluent les scores sur plusieurs seuils. "
+            "Précision, rappel et F1 sont affichés ici au seuil de référence 0,50."
+        )
         st.dataframe(table, use_container_width=True, hide_index=True)
+
+        with st.expander("📘 Comment lire les métriques ?"):
+            metric_guide()
+
+        best_auc = table.iloc[0]
+        best_pr = table.sort_values("PR-AUC", ascending=False).iloc[0]
+        interpretation_box(
+            f"Selon l'AUC-ROC, **{best_auc['Modèle']}** est actuellement le meilleur discriminant "
+            f"(AUC={best_auc['AUC-ROC']:.4f}, Gini={best_auc['Gini']:.4f}, KS={best_auc['KS']:.4f}). "
+            f"La meilleure PR-AUC est obtenue par **{best_pr['Modèle']}** ({best_pr['PR-AUC']:.4f}). "
+            "Le choix ne repose donc pas sur une seule métrique : le Module 4 analysera les erreurs et l'effet du seuil."
+        )
 
         for name, result in results.items():
             with st.expander(f"Paramètres retenus — {name}"):
+                if result.tuned:
+                    st.success("Paramètres retenus automatiquement par RandomizedSearchCV.")
+                else:
+                    st.info("Optimisation automatique non utilisée pour cet entraînement.")
                 st.json(result.best_params)
+
+
+elif module == "3.1 · Conclusion Modélisation":
+    st.header("3.1 — Conclusion Modélisation")
+    if "model_results" not in st.session_state:
+        st.warning("Aucun entraînement disponible. Lancez d'abord le Module 3.")
+    else:
+        table = comparison_table(st.session_state.model_results)
+        best = table.iloc[0]
+        best_pr = table.sort_values("PR-AUC", ascending=False).iloc[0]
+
+        st.markdown("### 📌 Résultats principaux")
+        st.write(
+            f"Les cinq familles de modèles ont été comparées sur le même jeu de test. "
+            f"Le meilleur AUC-ROC est obtenu par {best['Modèle']} avec {best['AUC-ROC']:.4f}. "
+            f"Sa valeur de Gini est {best['Gini']:.4f} et son KS {best['KS']:.4f}."
+        )
+
+        st.markdown("### 🧠 Interprétation")
+        st.write(
+            f"{best['Modèle']} sépare globalement le mieux les bons et mauvais payeurs dans cette exécution. "
+            f"Pour le compromis précision-rappel sur l'ensemble des seuils, {best_pr['Modèle']} obtient la meilleure PR-AUC ({best_pr['PR-AUC']:.4f})."
+        )
+
+        st.markdown("### ⚠️ Point à garder en tête")
+        st.write(
+            "Une bonne AUC ne suffit pas pour décider qui reçoit un crédit. Les erreurs concrètes dépendent du seuil : "
+            "un faux négatif peut laisser passer un mauvais payeur, tandis qu'un faux positif peut conduire à refuser un bon client."
+        )
+
+        st.markdown("### ✅ Décision / transition")
+        st.success(
+            "Le Module 4 doit maintenant expliquer ces performances avec ROC, précision-rappel, matrice de confusion et analyse métier du seuil."
+        )
 
 
 elif module == "4 · Évaluation":
