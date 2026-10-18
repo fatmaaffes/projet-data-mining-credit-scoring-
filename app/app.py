@@ -482,86 +482,218 @@ elif module == "1.1 · Conclusion EDA":
 
 elif module == "2 · Préparation":
     st.header("Module 2 — Préparation")
+    module_intro(
+        "Transformer les données brutes en une représentation exploitable par les algorithmes, tout en protégeant le jeu de test.",
+        "Sélection des variables, séparation train/test, valeurs manquantes, encodage, normalisation et vérification des données préparées.",
+        "La préparation doit être apprise uniquement sur le train : le test représente des clients jamais vus et ne doit pas influencer les transformations.",
+    )
 
     config = st.session_state.prep_config
 
-    selected_features = st.multiselect(
-        "Variables explicatives à conserver",
-        X.columns.tolist(),
-        default=config["selected_features"],
+    (
+        tab_select,
+        tab_split,
+        tab_missing,
+        tab_encoding,
+        tab_scaling,
+        tab_ready,
+    ) = st.tabs(
+        [
+            "1 · Sélection des variables",
+            "2 · Train / Test",
+            "3 · Valeurs manquantes",
+            "4 · Encodage",
+            "5 · Normalisation",
+            "6 · Données préparées",
+        ]
     )
 
-    col1, col2 = st.columns(2)
+    with tab_select:
+        st.subheader("Sélection des variables explicatives")
+        st.write(
+            "On définit ici X, c'est-à-dire les informations utilisées pour prédire la cible default. "
+            "La cible elle-même n'est jamais incluse dans les variables explicatives."
+        )
+        selected_features = st.multiselect(
+            "Variables explicatives à conserver",
+            X.columns.tolist(),
+            default=config["selected_features"],
+            key="prep_features",
+        )
+        st.caption(
+            f"{len(selected_features)} variable(s) sélectionnée(s) sur {X.shape[1]}."
+        )
 
-    with col1:
+    with tab_split:
+        st.subheader("Séparation Train / Test")
         test_size = st.slider(
             "Part du jeu de test",
             min_value=0.10,
             max_value=0.40,
             value=float(config["test_size"]),
             step=0.05,
+            key="prep_test_size",
         )
-        scale_numeric = st.checkbox(
-            "Normaliser les variables numériques",
-            value=bool(config["scale_numeric"]),
+        st.info(
+            "La séparation est **stratifiée** : elle conserve approximativement la proportion 70/30 de la cible dans le train et le test. "
+            "Le modèle apprend sur le train ; le test reste réservé à l'évaluation finale."
         )
 
-    with col2:
-        numeric_imputation = st.selectbox(
-            "Imputation numérique",
-            ["median", "mean"],
-            index=0 if config["numeric_imputation"] == "median" else 1,
+    with tab_missing:
+        st.subheader("Traitement des valeurs manquantes")
+        current_missing = int(missing_summary(df)["valeurs_manquantes"].sum())
+        st.metric("Valeurs manquantes détectées", current_missing)
+
+        col_num, col_cat = st.columns(2)
+        with col_num:
+            numeric_imputation = st.selectbox(
+                "Imputation numérique",
+                ["median", "mean"],
+                index=0 if config["numeric_imputation"] == "median" else 1,
+                key="prep_num_imputation",
+            )
+            st.caption(
+                "median : robuste aux valeurs extrêmes ; mean : moyenne des valeurs disponibles."
+            )
+        with col_cat:
+            categorical_imputation = st.selectbox(
+                "Imputation catégorielle",
+                ["most_frequent"],
+                index=0,
+                key="prep_cat_imputation",
+            )
+            st.caption(
+                "most_frequent : remplace une catégorie manquante par la modalité la plus fréquente."
+            )
+
+        if current_missing == 0:
+            interpretation_box(
+                "Dans German Credit, aucune valeur n'est manquante : **aucune imputation n'est réellement effectuée**. "
+                "Les imputers restent dans le pipeline pour rendre la préparation robuste si une future source contient des valeurs absentes."
+            )
+
+    with tab_encoding:
+        st.subheader("Encodage des variables catégorielles")
+        selected_categorical = [
+            feature for feature in selected_features if feature in categorical_features
+        ]
+        st.write(
+            f"{len(selected_categorical)} variable(s) catégorielle(s) sélectionnée(s). "
+            "Elles sont transformées par **One-Hot Encoding** en colonnes binaires 0/1."
         )
-        categorical_imputation = st.selectbox(
-            "Imputation catégorielle",
-            ["most_frequent"],
-            index=0,
+        st.info(
+            "Exemple : une variable à 4 modalités devient 4 colonnes indicatrices. "
+            "C'est pourquoi le nombre de colonnes après préparation peut être supérieur aux 20 variables originales."
         )
+
+    with tab_scaling:
+        st.subheader("Normalisation / standardisation")
+        scale_numeric = st.checkbox(
+            "Standardiser les variables numériques",
+            value=bool(config["scale_numeric"]),
+            key="prep_scale",
+        )
+        st.caption(
+            "StandardScaler transforme chaque variable numérique selon z = (x − moyenne) / écart-type. "
+            "C'est particulièrement utile pour la régression logistique et kNN ; les arbres en ont moins besoin."
+        )
+        if scale_numeric:
+            st.success(
+                "Standardisation activée : les variables numériques seront ramenées sur des échelles comparables."
+            )
+        else:
+            st.warning(
+                "Standardisation désactivée : attention surtout aux modèles basés sur les distances comme kNN."
+            )
+
+    with tab_ready:
+        st.subheader("Aperçu des données préparées")
+        if not selected_features:
+            st.warning("Sélectionnez au moins une variable explicative.")
+        else:
+            preview_prepared = get_prepared(
+                tuple(selected_features),
+                test_size,
+                scale_numeric,
+                numeric_imputation,
+                categorical_imputation,
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Train", len(preview_prepared.X_train))
+            c2.metric("Test", len(preview_prepared.X_test))
+            c3.metric("Features brutes", len(selected_features))
+            c4.metric(
+                "Features après encodage",
+                len(preview_prepared.feature_names),
+            )
+
+            st.caption(
+                f"Affichage de **10 lignes d'exemple** parmi les {len(preview_prepared.X_train)} lignes du train complet."
+            )
+            st.dataframe(
+                preview_prepared.X_train.head(10),
+                use_container_width=True,
+            )
+
+            interpretation_box(
+                f"La préparation transforme {len(selected_features)} variables brutes en "
+                f"{len(preview_prepared.feature_names)} colonnes numériques utilisables par les modèles. "
+                "Le préprocesseur est ajusté uniquement sur le train puis appliqué au test, ce qui protège l'évaluation contre la fuite de données."
+            )
 
     if not selected_features:
         st.error("Sélectionnez au moins une variable explicative.")
-    else:
-        if st.button("Appliquer la préparation", type="primary"):
-            st.session_state.prep_config = {
-                "selected_features": selected_features,
-                "test_size": test_size,
-                "scale_numeric": scale_numeric,
-                "numeric_imputation": numeric_imputation,
-                "categorical_imputation": categorical_imputation,
-            }
-            st.session_state.pop("model_results", None)
-            st.session_state.pop("prepared_data", None)
-            st.success("Configuration de préparation enregistrée.")
-
-        current = st.session_state.prep_config
-        prepared = get_prepared(
-            tuple(current["selected_features"]),
-            current["test_size"],
-            current["scale_numeric"],
-            current["numeric_imputation"],
-            current["categorical_imputation"],
+    elif st.button("Appliquer et enregistrer la préparation", type="primary"):
+        st.session_state.prep_config = {
+            "selected_features": selected_features,
+            "test_size": test_size,
+            "scale_numeric": scale_numeric,
+            "numeric_imputation": numeric_imputation,
+            "categorical_imputation": categorical_imputation,
+        }
+        st.session_state.pop("model_results", None)
+        st.session_state.pop("prepared_data", None)
+        st.session_state.pop("threshold_recommendations", None)
+        st.success(
+            "Configuration enregistrée. Les anciens modèles ont été invalidés afin qu'ils soient réentraînés avec cette préparation."
         )
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Train", len(prepared.X_train))
-        c2.metric("Test", len(prepared.X_test))
-        c3.metric("Features brutes", len(current["selected_features"]))
-        c4.metric("Features après encodage", len(prepared.feature_names))
 
-        st.markdown(
-            """
-**Pipeline appliqué**
+elif module == "2.1 · Conclusion Préparation":
+    st.header("2.1 — Conclusion Préparation")
+    current = st.session_state.prep_config
+    prepared = get_prepared(
+        tuple(current["selected_features"]),
+        current["test_size"],
+        current["scale_numeric"],
+        current["numeric_imputation"],
+        current["categorical_imputation"],
+    )
 
-1. Séparation train/test stratifiée sur la cible.
-2. Imputation des valeurs manquantes.
-3. One-hot encoding des variables catégorielles.
-4. Normalisation des variables numériques si activée.
-5. Le préprocesseur est appris uniquement sur le train pour éviter la fuite de données.
-"""
-        )
+    st.markdown("### 📌 Ce que nous avons appliqué")
+    st.write(
+        f"Les données ont été séparées de façon stratifiée en {len(prepared.X_train)} observations de train et "
+        f"{len(prepared.X_test)} observations de test. Les variables catégorielles sont encodées en One-Hot et "
+        + ("les variables numériques sont standardisées." if current["scale_numeric"] else "la standardisation numérique est désactivée.")
+    )
 
-        st.subheader("Aperçu après transformation")
-        st.dataframe(prepared.X_train.head(10), use_container_width=True)
+    st.markdown("### 🧠 Ce que cela signifie")
+    st.write(
+        f"Les {len(current['selected_features'])} variables brutes deviennent {len(prepared.feature_names)} colonnes numériques. "
+        "Cette représentation peut être fournie aux différents algorithmes sans perdre la séparation entre train et test."
+    )
+
+    st.markdown("### ⚠️ Points à garder en tête")
+    st.write(
+        "German Credit ne contient aucune valeur manquante : les étapes d'imputation n'ont donc remplacé aucune valeur dans cette exécution. "
+        "Elles sont conservées uniquement pour la robustesse du pipeline. Le préprocesseur apprend ses statistiques et catégories sur le train uniquement."
+    )
+
+    st.markdown("### ✅ Décision / transition")
+    st.success(
+        "Les données sont prêtes pour la classification supervisée. On peut maintenant entraîner et comparer les cinq modèles du Module 3."
+    )
 
 
 elif module == "3 · Modélisation":
