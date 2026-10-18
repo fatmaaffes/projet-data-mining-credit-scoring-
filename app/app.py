@@ -54,16 +54,117 @@ st.set_page_config(
     layout="wide",
 )
 
+FINTECH_COLORS = [
+    "#1F6F8B",
+    "#2A9D8F",
+    "#D4A84F",
+    "#7A6FA8",
+    "#C65353",
+]
+
+MODEL_COLORS = {
+    "Régression logistique": "#1F6F8B",
+    "Random Forest": "#2A9D8F",
+    "XGBoost": "#D4A84F",
+    "kNN": "#7A6FA8",
+    "Arbre de décision": "#C65353",
+}
+
+px.defaults.template = "plotly_dark"
+px.defaults.color_discrete_sequence = FINTECH_COLORS
+
 st.markdown(
     """
 <style>
-div[data-testid="stMetric"] {
-    border: 1px solid rgba(120, 130, 150, 0.22);
-    border-radius: 12px;
-    padding: 0.65rem 0.8rem;
+:root {
+    --bg: #0B1118;
+    --surface: #131D27;
+    --surface-2: #16222E;
+    --primary: #1F6F8B;
+    --secondary: #2A9D8F;
+    --accent: #D4A84F;
+    --danger: #C65353;
+    --text: #F1F4F7;
+    --muted: #9CA8B5;
+    --border: #293442;
 }
+
+.stApp {
+    background: var(--bg);
+    color: var(--text);
+}
+
 [data-testid="stSidebar"] {
-    border-right: 1px solid rgba(120, 130, 150, 0.16);
+    background: #0F1720;
+    border-right: 1px solid var(--border);
+}
+
+div[data-testid="stMetric"] {
+    background: linear-gradient(180deg, #16222E 0%, #131D27 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.75rem 0.9rem;
+}
+
+div[data-testid="stMetric"] label,
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
+    color: var(--muted) !important;
+}
+
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+    color: var(--text) !important;
+}
+
+.stButton > button {
+    background: var(--primary);
+    color: white;
+    border: 1px solid #2F819D;
+    border-radius: 9px;
+    font-weight: 600;
+}
+
+.stButton > button:hover {
+    background: #2A7D99;
+    border-color: var(--secondary);
+    color: white;
+}
+
+[data-baseweb="tab-list"] {
+    gap: 0.2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+[data-baseweb="tab"] {
+    color: var(--muted);
+}
+
+button[role="tab"][aria-selected="true"] {
+    color: var(--text) !important;
+    border-bottom-color: var(--accent) !important;
+}
+
+[data-testid="stExpander"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+h1, h2, h3, h4 {
+    color: var(--text);
+}
+
+small, .stCaption, [data-testid="stCaptionContainer"] {
+    color: var(--muted) !important;
+}
+
+a {
+    color: #66B6CB !important;
 }
 </style>
 """,
@@ -441,6 +542,11 @@ if module == "1 · Données & EDA":
                 y=corr.index,
                 zmin=-1,
                 zmax=1,
+                colorscale=[
+                    [0.0, "#C65353"],
+                    [0.5, "#16222E"],
+                    [1.0, "#2A9D8F"],
+                ],
                 text=corr.values,
                 texttemplate="%{text:.2f}",
                 hovertemplate="%{y} ↔ %{x}<br>corrélation = %{z:.2f}<extra></extra>",
@@ -1180,6 +1286,7 @@ elif module == "4 · Évaluation":
             x="fpr",
             y="tpr",
             color="modèle",
+            color_discrete_map=MODEL_COLORS,
             title="Courbes ROC",
         )
         roc_fig.add_shape(
@@ -1218,6 +1325,7 @@ elif module == "4 · Évaluation":
             x="recall",
             y="precision",
             color="modèle",
+            color_discrete_map=MODEL_COLORS,
             title="Courbes précision-rappel",
         )
         pr_fig.update_layout(
@@ -1400,6 +1508,11 @@ elif module == "4 · Évaluation":
             data=go.Heatmap(
                 z=matrix,
                 x=["Prédit bon (0)", "Prédit défaut (1)"],
+                colorscale=[
+                    [0.0, "#131D27"],
+                    [0.5, "#1F6F8B"],
+                    [1.0, "#BFE3E0"],
+                ],
                 y=["Réel bon (0)", "Réel défaut (1)"],
                 text=matrix,
                 texttemplate="%{text}",
