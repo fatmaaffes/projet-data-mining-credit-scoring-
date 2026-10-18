@@ -51,7 +51,6 @@ from src.training import train_models
 
 st.set_page_config(
     page_title="Credit Scoring XAI",
-    page_icon="💳",
     layout="wide",
 )
 
@@ -80,15 +79,15 @@ def get_data():
 def module_intro(goal: str, topics: str, importance: str) -> None:
     """Shared pedagogical header used at the beginning of each module."""
 
-    st.markdown("### 🎯 But du module")
+    st.markdown("### But du module")
     st.info(goal)
-    st.markdown("### 🧩 Ce qu’on va traiter")
+    st.markdown("### Ce qu’on va traiter")
     st.markdown(topics)
-    st.markdown("### 🔗 Pourquoi c’est important pour notre Credit Scoring")
+    st.markdown("### Pourquoi c’est important pour notre Credit Scoring")
     st.success(importance)
 
 
-def interpretation_box(text: str, *, title: str = "📌 Interprétation") -> None:
+def interpretation_box(text: str, *, title: str = "Interprétation") -> None:
     st.markdown(f"**{title}**")
     st.info(text)
 
@@ -144,7 +143,7 @@ if "prep_config" not in st.session_state:
         "categorical_imputation": "most_frequent",
     }
 
-st.title("💳 Credit Scoring explicable")
+st.title("Credit Scoring explicable")
 st.caption("German Credit — UCI Statlog · Application interactive complète")
 
 st.success(
@@ -472,23 +471,23 @@ if module == "1 · Données & EDA":
 
 elif module == "1.1 · Conclusion EDA":
     st.header("1.1 — Conclusion EDA")
-    st.markdown("### 📌 Ce que nous avons observé")
+    st.markdown("### Ce que nous avons observé")
     st.write(
         "German Credit contient 1 000 clients, 20 variables explicatives et une cible binaire. "
         "Aucune valeur manquante n'est présente. La cible est répartie approximativement à 70 % de bons payeurs et 30 % de défauts."
     )
-    st.markdown("### 🧠 Ce que cela signifie")
+    st.markdown("### Ce que cela signifie")
     st.write(
         "Les variables numériques et catégorielles apportent des informations complémentaires. "
         "Certaines modalités, notamment checking_status, présentent des taux de défaut nettement différents. "
         "La majorité des corrélations numériques restent faibles ; duration et credit_amount présentent toutefois une corrélation positive notable d'environ 0,62."
     )
-    st.markdown("### ⚠️ Points à garder en tête")
+    st.markdown("### Points à garder en tête")
     st.write(
         "Les valeurs extrêmes ne sont pas automatiquement des erreurs, et une association statistique n'implique pas une causalité. "
         "Aucune redondance linéaire majeure ne justifie à ce stade une suppression automatique de variables."
     )
-    st.markdown("### ✅ Décision / transition")
+    st.markdown("### Décision / transition")
     st.success(
         "Le dataset est exploitable pour la modélisation. L'étape suivante consiste à séparer train/test, encoder les variables catégorielles et mettre les variables numériques sur une échelle adaptée, sans fuite de données."
     )
@@ -687,26 +686,26 @@ elif module == "2.1 · Conclusion Préparation":
         current["categorical_imputation"],
     )
 
-    st.markdown("### 📌 Ce que nous avons appliqué")
+    st.markdown("### Ce que nous avons appliqué")
     st.write(
         f"Les données ont été séparées de façon stratifiée en {len(prepared.X_train)} observations de train et "
         f"{len(prepared.X_test)} observations de test. Les variables catégorielles sont encodées en One-Hot et "
         + ("les variables numériques sont standardisées." if current["scale_numeric"] else "la standardisation numérique est désactivée.")
     )
 
-    st.markdown("### 🧠 Ce que cela signifie")
+    st.markdown("### Ce que cela signifie")
     st.write(
         f"Les {len(current['selected_features'])} variables brutes deviennent {len(prepared.feature_names)} colonnes numériques. "
         "Cette représentation peut être fournie aux différents algorithmes sans perdre la séparation entre train et test."
     )
 
-    st.markdown("### ⚠️ Points à garder en tête")
+    st.markdown("### Points à garder en tête")
     st.write(
         "German Credit ne contient aucune valeur manquante : les étapes d'imputation n'ont donc remplacé aucune valeur dans cette exécution. "
         "Elles sont conservées uniquement pour la robustesse du pipeline. Le préprocesseur apprend ses statistiques et catégories sur le train uniquement."
     )
 
-    st.markdown("### ✅ Décision / transition")
+    st.markdown("### Décision / transition")
     st.success(
         "Les données sont prêtes pour la classification supervisée. On peut maintenant entraîner et comparer les cinq modèles du Module 3."
     )
@@ -1075,7 +1074,7 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
         )
         st.dataframe(table, use_container_width=True, hide_index=True)
 
-        with st.expander("📘 Comment lire les métriques ?"):
+        with st.expander("Comment lire les métriques ?"):
             metric_guide()
 
         best_auc = table.iloc[0]
@@ -1105,26 +1104,26 @@ elif module == "3.1 · Conclusion Modélisation":
         best = table.iloc[0]
         best_pr = table.sort_values("PR-AUC", ascending=False).iloc[0]
 
-        st.markdown("### 📌 Résultats principaux")
+        st.markdown("### Résultats principaux")
         st.write(
             f"Les cinq familles de modèles ont été comparées sur le même jeu de test. "
             f"Le meilleur AUC-ROC est obtenu par {best['Modèle']} avec {best['AUC-ROC']:.4f}. "
             f"Sa valeur de Gini est {best['Gini']:.4f} et son KS {best['KS']:.4f}."
         )
 
-        st.markdown("### 🧠 Interprétation")
+        st.markdown("### Interprétation")
         st.write(
             f"{best['Modèle']} sépare globalement le mieux les bons et mauvais payeurs dans cette exécution. "
             f"Pour le compromis précision-rappel sur l'ensemble des seuils, {best_pr['Modèle']} obtient la meilleure PR-AUC ({best_pr['PR-AUC']:.4f})."
         )
 
-        st.markdown("### ⚠️ Point à garder en tête")
+        st.markdown("### Point à garder en tête")
         st.write(
             "Une bonne AUC ne suffit pas pour décider qui reçoit un crédit. Les erreurs concrètes dépendent du seuil : "
             "un faux négatif peut laisser passer un mauvais payeur, tandis qu'un faux positif peut conduire à refuser un bon client."
         )
 
-        st.markdown("### ✅ Décision / transition")
+        st.markdown("### Décision / transition")
         st.success(
             "Le Module 4 doit maintenant expliquer ces performances avec ROC, précision-rappel, matrice de confusion et analyse métier du seuil."
         )
@@ -1156,7 +1155,7 @@ elif module == "4 · Évaluation":
             "AUC-ROC, Gini, KS et PR-AUC évaluent les scores sur plusieurs seuils."
         )
 
-        with st.expander("📘 Comment lire AUC, Gini, KS, précision, rappel, F1 et PR-AUC ?"):
+        with st.expander("Comment lire AUC, Gini, KS, précision, rappel, F1 et PR-AUC ?"):
             metric_guide()
 
         best_auc = table.iloc[0]
@@ -1198,7 +1197,7 @@ elif module == "4 · Évaluation":
         st.plotly_chart(roc_fig, use_container_width=True)
 
         st.info(
-            "📘 **Comment lire la ROC ?** On cherche une courbe qui monte rapidement vers le coin supérieur gauche. "
+            "**Comment lire la ROC ?** On cherche une courbe qui monte rapidement vers le coin supérieur gauche. "
             "La diagonale représente un classement proche du hasard. L'AUC résume la surface sous la courbe et ne dépend pas d'un seuil unique."
         )
         interpretation_box(
@@ -1228,7 +1227,7 @@ elif module == "4 · Évaluation":
         st.plotly_chart(pr_fig, use_container_width=True)
 
         st.info(
-            "📘 **Comment lire la courbe précision-rappel ?** Le rappel mesure combien de vrais mauvais payeurs sont détectés ; "
+            "**Comment lire la courbe précision-rappel ?** Le rappel mesure combien de vrais mauvais payeurs sont détectés ; "
             "la précision mesure, parmi les clients signalés risqués, combien le sont réellement. "
             "Le coin supérieur droit représente le compromis idéal."
         )
@@ -1245,7 +1244,7 @@ elif module == "4 · Évaluation":
         )
         result = results[selected_model]
 
-        st.markdown("#### 🎯 Objectif métier")
+        st.markdown("#### Objectif métier")
         business_goal = st.selectbox(
             "Quel compromis veut-on privilégier ?",
             [
@@ -1327,7 +1326,7 @@ elif module == "4 · Évaluation":
         recommended_threshold = float(recommendation["Seuil"])
 
         st.success(
-            f"🎯 **Seuil recommandé : {recommended_threshold:.2f}** — {recommendation['Critère']}. "
+            f"**Seuil recommandé : {recommended_threshold:.2f}** — {recommendation['Critère']}. "
             "Il est choisi sur des prédictions de validation du TRAIN, pas en regardant le TEST."
         )
         st.caption(
@@ -1349,7 +1348,7 @@ elif module == "4 · Évaluation":
             st.session_state.eval_threshold = recommended_threshold
             st.rerun()
 
-        st.markdown("#### 🔎 Mode exploration")
+        st.markdown("#### Mode exploration")
         st.caption(
             "Le slider permet de comprendre l'effet d'un seuil. Il ne doit pas servir à sélectionner le seuil final en regardant le test."
         )
@@ -1416,13 +1415,13 @@ elif module == "4 · Évaluation":
         st.plotly_chart(confusion_fig, use_container_width=True)
 
         st.info(
-            "📘 **Comment lire la matrice ?** VP = mauvais payeur correctement détecté ; VN = bon payeur correctement reconnu ; "
+            "**Comment lire la matrice ?** VP = mauvais payeur correctement détecté ; VN = bon payeur correctement reconnu ; "
             "FN = mauvais payeur prédit bon ; FP = bon payeur prédit risqué."
         )
 
         risk_col, commercial_col = st.columns(2)
         with risk_col:
-            st.markdown("#### 🛡️ Impact risque")
+            st.markdown("#### Impact risque")
             st.metric("Mauvais payeurs détectés (VP)", int(tp), delta=int(tp - ref_tp))
             st.metric(
                 "Mauvais payeurs ratés (FN)",
@@ -1431,7 +1430,7 @@ elif module == "4 · Évaluation":
                 delta_color="inverse",
             )
         with commercial_col:
-            st.markdown("#### 🤝 Impact commercial")
+            st.markdown("#### Impact commercial")
             st.metric("Bons clients reconnus (VN)", int(tn), delta=int(tn - ref_tn))
             st.metric(
                 "Bons clients signalés à tort (FP)",
@@ -1490,7 +1489,7 @@ elif module == "4 · Évaluation":
             direction
             + f" Avec le seuil {threshold:.2f}, on détecte {int(tp)} des {int(tp + fn)} mauvais payeurs "
             + f"et on en manque {int(fn)}. En parallèle, {int(fp)} des {int(tn + fp)} bons clients sont signalés à tort.",
-            title="🧠 Interprétation dynamique",
+            title="Interprétation dynamique",
         )
 
         if fn < ref_fn and fp > ref_fp:
@@ -1511,7 +1510,7 @@ elif module == "4 · Évaluation":
                 "Le seuil recommandé reste celui calculé sur validation selon l'objectif métier choisi."
             )
 
-        st.success(f"✅ **Conclusion du seuil exploré.** {conclusion}")
+        st.success(f"**Conclusion du seuil exploré.** {conclusion}")
 
 
 elif module == "4.1 · Conclusion Évaluation":
@@ -1522,20 +1521,20 @@ elif module == "4.1 · Conclusion Évaluation":
         table = comparison_table(st.session_state.model_results)
         best = table.iloc[0]
 
-        st.markdown("### 📌 Résultats principaux")
+        st.markdown("### Résultats principaux")
         st.write(
             f"Le meilleur AUC-ROC est obtenu par {best['Modèle']} ({best['AUC-ROC']:.4f}), "
             f"avec Gini={best['Gini']:.4f} et KS={best['KS']:.4f}. "
             "Les courbes ROC et précision-rappel confirment que les modèles n'offrent pas exactement le même compromis."
         )
 
-        st.markdown("### 🧠 Ce que cela signifie")
+        st.markdown("### Ce que cela signifie")
         st.write(
             "Le modèle fournit d'abord une probabilité de défaut. Le seuil transforme ensuite cette probabilité en décision binaire. "
             "Baisser le seuil détecte généralement davantage de mauvais payeurs mais expose à plus de faux positifs ; le relever produit l'effet inverse."
         )
 
-        st.markdown("### ⚠️ Point méthodologique")
+        st.markdown("### Point méthodologique")
         st.write(
             "Le seuil final ne doit pas être choisi en regardant le jeu de test. "
             "L'application calcule donc le seuil recommandé à partir de probabilités de validation obtenues sur le train, puis le test sert uniquement à mesurer le comportement final."
@@ -1557,7 +1556,7 @@ elif module == "4.1 · Conclusion Évaluation":
             )
             tn, fp, fn, tp = rec_matrix.ravel()
 
-            st.markdown("### ✅ Décision / transition")
+            st.markdown("### Décision / transition")
             st.success(
                 f"Pour l'objectif **{rec['business_goal']}**, le seuil recommandé pour **{rec['model']}** est {rec['threshold']:.2f} "
                 f"({rec['criterion']}). Appliqué au test, il donne rappel={rec_metrics['Rappel']:.3f}, "
@@ -1565,7 +1564,7 @@ elif module == "4.1 · Conclusion Évaluation":
                 "On peut maintenant expliquer les décisions du modèle dans le Module 5 XAI."
             )
         else:
-            st.markdown("### ✅ Décision / transition")
+            st.markdown("### Décision / transition")
             st.success(
                 "Choisissez un modèle et un objectif métier dans le Module 4 afin de calculer un seuil recommandé, puis passez au Module 5 XAI."
             )
