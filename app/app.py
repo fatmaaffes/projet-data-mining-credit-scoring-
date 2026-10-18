@@ -1045,6 +1045,8 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
         st.session_state.prepared_data = prepared
         st.session_state.model_cv_folds = cv_folds
         st.session_state.threshold_recommendations = {}
+        st.session_state.threshold_oof_probs = {}
+        st.session_state.pop("last_threshold_recommendation", None)
         st.success("Entraînement terminé.")
 
     if "model_results" in st.session_state:
@@ -1114,6 +1116,11 @@ elif module == "3.1 · Conclusion Modélisation":
 
 elif module == "4 · Évaluation":
     st.header("Module 4 — Évaluation")
+    module_intro(
+        "Comprendre pourquoi un modèle est performant, quelles erreurs il commet et comment le seuil transforme une probabilité en décision.",
+        "Tableau comparatif, courbes ROC, courbes précision-rappel, matrice de confusion, exploration du seuil et seuil recommandé sur validation.",
+        "En crédit, un même modèle peut être utilisé différemment selon le coût d'un mauvais payeur accepté et celui d'un bon client refusé.",
+    )
 
     if "model_results" not in st.session_state:
         st.warning("Entraînez d'abord au moins un modèle dans le Module 3.")
@@ -1121,14 +1128,31 @@ elif module == "4 · Évaluation":
         results = st.session_state.model_results
         prepared = st.session_state.prepared_data
 
-        st.subheader("Tableau comparatif")
+        st.subheader("1 · Comparaison globale des modèles")
+        table = comparison_table(results)
         st.dataframe(
-            comparison_table(results),
+            table,
             use_container_width=True,
             hide_index=True,
         )
+        st.caption(
+            "Les valeurs viennent du jeu de test. Précision, rappel et F1 du tableau utilisent le seuil de référence 0,50 ; "
+            "AUC-ROC, Gini, KS et PR-AUC évaluent les scores sur plusieurs seuils."
+        )
 
-        st.subheader("Courbes ROC superposées")
+        with st.expander("📘 Comment lire AUC, Gini, KS, précision, rappel, F1 et PR-AUC ?"):
+            metric_guide()
+
+        best_auc = table.iloc[0]
+        best_pr = table.sort_values("PR-AUC", ascending=False).iloc[0]
+        interpretation_box(
+            f"**{best_auc['Modèle']}** possède la meilleure AUC-ROC ({best_auc['AUC-ROC']:.4f}), "
+            f"avec Gini={best_auc['Gini']:.4f} et KS={best_auc['KS']:.4f}. "
+            f"La meilleure PR-AUC est obtenue par **{best_pr['Modèle']}** ({best_pr['PR-AUC']:.4f}). "
+            "On garde donc plusieurs indicateurs avant de regarder les erreurs concrètes."
+        )
+
+        st.subheader("2 · Courbes ROC superposées")
         roc_frames = []
         for name, result in results.items():
             frame = roc_points(prepared.y_test, result.y_prob)
@@ -1157,7 +1181,16 @@ elif module == "4 · Évaluation":
         )
         st.plotly_chart(roc_fig, use_container_width=True)
 
-        st.subheader("Courbes précision-rappel")
+        st.info(
+            "📘 **Comment lire la ROC ?** On cherche une courbe qui monte rapidement vers le coin supérieur gauche. "
+            "La diagonale représente un classement proche du hasard. L'AUC résume la surface sous la courbe et ne dépend pas d'un seuil unique."
+        )
+        interpretation_box(
+            f"La courbe de **{best_auc['Modèle']}** est globalement la plus favorable et son AUC={best_auc['AUC-ROC']:.4f} "
+            f"est la plus élevée. À l'inverse, **{table.iloc[-1]['Modèle']}** est le moins discriminant dans cette comparaison."
+        )
+
+        st.subheader("3 · Courbes précision-rappel")
         pr_frames = []
         for name, result in results.items():
             frame = precision_recall_points(prepared.y_test, result.y_prob)
@@ -1178,37 +1211,174 @@ elif module == "4 · Évaluation":
         )
         st.plotly_chart(pr_fig, use_container_width=True)
 
-        st.subheader("Analyse du seuil de décision")
+        st.info(
+            "📘 **Comment lire la courbe précision-rappel ?** Le rappel mesure combien de vrais mauvais payeurs sont détectés ; "
+            "la précision mesure, parmi les clients signalés risqués, combien le sont réellement. "
+            "Le coin supérieur droit représente le compromis idéal."
+        )
+        interpretation_box(
+            f"**{best_pr['Modèle']}** obtient la meilleure PR-AUC ({best_pr['PR-AUC']:.4f}). "
+            "Cette vue est utile ici car la classe défaut est minoritaire : elle montre directement le compromis entre détecter davantage de défauts et limiter les fausses alertes."
+        )
+
+        st.subheader("4 · Seuil de décision : exploration et recommandation")
         selected_model = st.selectbox(
             "Modèle",
             list(results.keys()),
             key="eval_model",
         )
+        result = results[selected_model]
+
+        st.markdown("#### 🎯 Objectif métier")
+        business_goal = st.selectbox(
+            "Quel compromis veut-on privilégier ?",
+            [
+                "Équilibre précision / rappel",
+                "Réduire les défauts",
+                "Limiter les refus injustifiés",
+                "Coûts personnalisés",
+            ],
+            key="business_goal",
+        )
+
+        if business_goal == "Équilibre précision / rappel":
+            objective = "balance"
+            fn_cost = 1.0
+            fp_cost = 1.0
+            st.caption("Le seuil recommandé maximise le F1 sur des prédictions de validation.")
+        elif business_goal == "Réduire les défauts":
+            objective = "cost"
+            fn_cost = 5.0
+            fp_cost = 1.0
+            st.caption(
+                "Hypothèse pédagogique : un faux négatif (mauvais payeur accepté) coûte 5 fois un faux positif. "
+                "Ce ratio doit être remplacé par des coûts métier réels s'ils sont disponibles."
+            )
+        elif business_goal == "Limiter les refus injustifiés":
+            objective = "cost"
+            fn_cost = 1.0
+            fp_cost = 5.0
+            st.caption(
+                "Hypothèse pédagogique : un faux positif (bon client refusé) coûte 5 fois un faux négatif. "
+                "Ce ratio doit être adapté au contexte réel."
+            )
+        else:
+            objective = "cost"
+            cost_col1, cost_col2 = st.columns(2)
+            with cost_col1:
+                fn_cost = st.number_input(
+                    "Coût relatif d'un faux négatif (FN)",
+                    min_value=0.1,
+                    value=5.0,
+                    step=0.5,
+                    key="fn_business_cost",
+                )
+            with cost_col2:
+                fp_cost = st.number_input(
+                    "Coût relatif d'un faux positif (FP)",
+                    min_value=0.1,
+                    value=1.0,
+                    step=0.5,
+                    key="fp_business_cost",
+                )
+
+        if "threshold_oof_probs" not in st.session_state:
+            st.session_state.threshold_oof_probs = {}
+
+        cv_folds_for_threshold = int(st.session_state.get("model_cv_folds", 5))
+        if selected_model not in st.session_state.threshold_oof_probs:
+            with st.spinner(
+                f"Calcul des probabilités de validation pour {selected_model}..."
+            ):
+                st.session_state.threshold_oof_probs[selected_model] = (
+                    cross_validated_probabilities(
+                        result.estimator,
+                        prepared.X_train,
+                        prepared.y_train,
+                        cv_folds=cv_folds_for_threshold,
+                    )
+                )
+
+        validation_prob = st.session_state.threshold_oof_probs[selected_model]
+        recommendation = recommend_threshold(
+            prepared.y_train,
+            validation_prob,
+            objective=objective,
+            fn_cost=fn_cost,
+            fp_cost=fp_cost,
+        )
+        recommended_threshold = float(recommendation["Seuil"])
+
+        st.success(
+            f"🎯 **Seuil recommandé : {recommended_threshold:.2f}** — {recommendation['Critère']}. "
+            "Il est choisi sur des prédictions de validation du TRAIN, pas en regardant le TEST."
+        )
+        st.caption(
+            f"Sur validation : précision={recommendation['Précision']:.3f}, rappel={recommendation['Rappel']:.3f}, "
+            f"F1={recommendation['F1']:.3f}, FN={int(recommendation['FN'])}, FP={int(recommendation['FP'])}."
+        )
+
+        st.session_state.last_threshold_recommendation = {
+            "model": selected_model,
+            "threshold": recommended_threshold,
+            "criterion": recommendation["Critère"],
+            "business_goal": business_goal,
+        }
+
+        if "eval_threshold" not in st.session_state:
+            st.session_state.eval_threshold = 0.50
+
+        if st.button("Utiliser le seuil recommandé dans l'exploration"):
+            st.session_state.eval_threshold = recommended_threshold
+            st.rerun()
+
+        st.markdown("#### 🔎 Mode exploration")
+        st.caption(
+            "Le slider permet de comprendre l'effet d'un seuil. Il ne doit pas servir à sélectionner le seuil final en regardant le test."
+        )
         threshold = st.slider(
             "Seuil de décision",
             0.05,
             0.95,
-            0.50,
             0.01,
             key="eval_threshold",
         )
 
-        result = results[selected_model]
         metrics = metrics_at_threshold(
             prepared.y_test,
             result.y_prob,
             threshold,
         )
+        reference_metrics = metrics_at_threshold(
+            prepared.y_test,
+            result.y_prob,
+            0.50,
+        )
 
         metric_cols = st.columns(7)
         for column, (name, value) in zip(metric_cols, metrics.items()):
-            column.metric(name, f"{value:.3f}")
+            if name in {"Précision", "Rappel", "F1"}:
+                delta = value - reference_metrics[name]
+                column.metric(
+                    name,
+                    f"{value:.3f}",
+                    delta=f"{delta:+.3f} vs 0,50",
+                )
+            else:
+                column.metric(name, f"{value:.3f}")
 
         matrix = confusion_at_threshold(
             prepared.y_test,
             result.y_prob,
             threshold,
         )
+        ref_matrix = confusion_at_threshold(
+            prepared.y_test,
+            result.y_prob,
+            0.50,
+        )
+        tn, fp, fn, tp = matrix.ravel()
+        ref_tn, ref_fp, ref_fn, ref_tp = ref_matrix.ravel()
 
         confusion_fig = go.Figure(
             data=go.Heatmap(
@@ -1229,10 +1399,159 @@ elif module == "4 · Évaluation":
         st.plotly_chart(confusion_fig, use_container_width=True)
 
         st.info(
-            "Baisser le seuil détecte généralement davantage de mauvais payeurs "
-            "(rappel plus élevé), mais augmente aussi les faux positifs. "
-            "Le seuil est donc une décision métier."
+            "📘 **Comment lire la matrice ?** VP = mauvais payeur correctement détecté ; VN = bon payeur correctement reconnu ; "
+            "FN = mauvais payeur prédit bon ; FP = bon payeur prédit risqué."
         )
+
+        risk_col, commercial_col = st.columns(2)
+        with risk_col:
+            st.markdown("#### 🛡️ Impact risque")
+            st.metric("Mauvais payeurs détectés (VP)", int(tp), delta=int(tp - ref_tp))
+            st.metric(
+                "Mauvais payeurs ratés (FN)",
+                int(fn),
+                delta=int(fn - ref_fn),
+                delta_color="inverse",
+            )
+        with commercial_col:
+            st.markdown("#### 🤝 Impact commercial")
+            st.metric("Bons clients reconnus (VN)", int(tn), delta=int(tn - ref_tn))
+            st.metric(
+                "Bons clients signalés à tort (FP)",
+                int(fp),
+                delta=int(fp - ref_fp),
+                delta_color="inverse",
+            )
+
+        comparison_threshold = pd.DataFrame(
+            [
+                {
+                    "Seuil": "Référence 0,50",
+                    "Précision": reference_metrics["Précision"],
+                    "Rappel": reference_metrics["Rappel"],
+                    "F1": reference_metrics["F1"],
+                    "VP": int(ref_tp),
+                    "FN": int(ref_fn),
+                    "FP": int(ref_fp),
+                    "VN": int(ref_tn),
+                },
+                {
+                    "Seuil": f"Exploré {threshold:.2f}",
+                    "Précision": metrics["Précision"],
+                    "Rappel": metrics["Rappel"],
+                    "F1": metrics["F1"],
+                    "VP": int(tp),
+                    "FN": int(fn),
+                    "FP": int(fp),
+                    "VN": int(tn),
+                },
+            ]
+        )
+        st.markdown("#### Comparaison directe avec le seuil 0,50")
+        st.dataframe(
+            comparison_threshold.round(
+                {"Précision": 3, "Rappel": 3, "F1": 3}
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if threshold < 0.50:
+            direction = (
+                "Le seuil est plus bas que 0,50 : le modèle classe davantage de clients comme risqués. "
+                "Cela tend à augmenter le rappel et à réduire les faux négatifs, au prix de davantage de faux positifs."
+            )
+        elif threshold > 0.50:
+            direction = (
+                "Le seuil est plus haut que 0,50 : le modèle devient plus strict avant de prédire un défaut. "
+                "Cela tend à réduire les faux positifs, mais davantage de mauvais payeurs peuvent être manqués."
+            )
+        else:
+            direction = "Le seuil 0,50 sert ici de point de référence."
+
+        interpretation_box(
+            direction
+            + f" Avec le seuil {threshold:.2f}, on détecte {int(tp)} des {int(tp + fn)} mauvais payeurs "
+            + f"et on en manque {int(fn)}. En parallèle, {int(fp)} des {int(tn + fp)} bons clients sont signalés à tort.",
+            title="🧠 Interprétation dynamique",
+        )
+
+        if fn < ref_fn and fp > ref_fp:
+            conclusion = (
+                f"Le seuil {threshold:.2f} est **plus orienté risque** que 0,50 : "
+                f"{int(ref_fn - fn)} mauvais payeur(s) supplémentaire(s) sont récupérés, "
+                f"mais {int(fp - ref_fp)} bon(s) client(s) supplémentaire(s) sont signalés à tort."
+            )
+        elif fp < ref_fp and fn > ref_fn:
+            conclusion = (
+                f"Le seuil {threshold:.2f} est **plus orienté commercial** que 0,50 : "
+                f"{int(ref_fp - fp)} faux refus potentiel(s) sont évités, "
+                f"mais {int(fn - ref_fn)} mauvais payeur(s) supplémentaire(s) peuvent passer."
+            )
+        else:
+            conclusion = (
+                "Ce seuil produit un compromis proche de la référence sur les erreurs observées. "
+                "Le seuil recommandé reste celui calculé sur validation selon l'objectif métier choisi."
+            )
+
+        st.success(f"✅ **Conclusion du seuil exploré.** {conclusion}")
+
+
+elif module == "4.1 · Conclusion Évaluation":
+    st.header("4.1 — Conclusion Évaluation")
+    if "model_results" not in st.session_state:
+        st.warning("Aucune évaluation disponible. Entraînez d'abord les modèles.")
+    else:
+        table = comparison_table(st.session_state.model_results)
+        best = table.iloc[0]
+
+        st.markdown("### 📌 Résultats principaux")
+        st.write(
+            f"Le meilleur AUC-ROC est obtenu par {best['Modèle']} ({best['AUC-ROC']:.4f}), "
+            f"avec Gini={best['Gini']:.4f} et KS={best['KS']:.4f}. "
+            "Les courbes ROC et précision-rappel confirment que les modèles n'offrent pas exactement le même compromis."
+        )
+
+        st.markdown("### 🧠 Ce que cela signifie")
+        st.write(
+            "Le modèle fournit d'abord une probabilité de défaut. Le seuil transforme ensuite cette probabilité en décision binaire. "
+            "Baisser le seuil détecte généralement davantage de mauvais payeurs mais expose à plus de faux positifs ; le relever produit l'effet inverse."
+        )
+
+        st.markdown("### ⚠️ Point méthodologique")
+        st.write(
+            "Le seuil final ne doit pas être choisi en regardant le jeu de test. "
+            "L'application calcule donc le seuil recommandé à partir de probabilités de validation obtenues sur le train, puis le test sert uniquement à mesurer le comportement final."
+        )
+
+        rec = st.session_state.get("last_threshold_recommendation")
+        if rec and rec["model"] in st.session_state.model_results:
+            result = st.session_state.model_results[rec["model"]]
+            prepared = st.session_state.prepared_data
+            rec_metrics = metrics_at_threshold(
+                prepared.y_test,
+                result.y_prob,
+                rec["threshold"],
+            )
+            rec_matrix = confusion_at_threshold(
+                prepared.y_test,
+                result.y_prob,
+                rec["threshold"],
+            )
+            tn, fp, fn, tp = rec_matrix.ravel()
+
+            st.markdown("### ✅ Décision / transition")
+            st.success(
+                f"Pour l'objectif **{rec['business_goal']}**, le seuil recommandé pour **{rec['model']}** est {rec['threshold']:.2f} "
+                f"({rec['criterion']}). Appliqué au test, il donne rappel={rec_metrics['Rappel']:.3f}, "
+                f"précision={rec_metrics['Précision']:.3f}, F1={rec_metrics['F1']:.3f}, avec VP={int(tp)}, FN={int(fn)}, FP={int(fp)} et VN={int(tn)}. "
+                "On peut maintenant expliquer les décisions du modèle dans le Module 5 XAI."
+            )
+        else:
+            st.markdown("### ✅ Décision / transition")
+            st.success(
+                "Choisissez un modèle et un objectif métier dans le Module 4 afin de calculer un seuil recommandé, puis passez au Module 5 XAI."
+            )
 
 
 elif module == "5 · Explainable AI":
