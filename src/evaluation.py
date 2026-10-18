@@ -16,6 +16,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.pipeline import Pipeline
 
 
 def ks_statistic(y_true, y_prob) -> float:
@@ -89,11 +90,12 @@ def cross_validated_probabilities(
     *,
     cv_folds: int = 5,
     random_state: int = 42,
+    preprocessor=None,
 ) -> np.ndarray:
-    """Generate out-of-fold probabilities using training data only.
+    """Generate leakage-safe out-of-fold probabilities from training data only.
 
-    These probabilities are intended for threshold selection. The held-out test
-    set is deliberately not used here.
+    If a preprocessor is provided, it is refitted inside every CV fold rather
+    than being learned once from the whole training split.
     """
 
     cv = StratifiedKFold(
@@ -101,8 +103,19 @@ def cross_validated_probabilities(
         shuffle=True,
         random_state=random_state,
     )
+
+    if preprocessor is None:
+        cv_estimator = clone(estimator)
+    else:
+        cv_estimator = Pipeline(
+            [
+                ("preprocessor", clone(preprocessor)),
+                ("model", clone(estimator)),
+            ]
+        )
+
     probabilities = cross_val_predict(
-        clone(estimator),
+        cv_estimator,
         X_train,
         y_train,
         cv=cv,
