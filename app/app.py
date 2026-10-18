@@ -450,6 +450,89 @@ elif module == "3 · Modélisation":
         "XGBoost",
     ]
 
+    st.markdown(
+        """
+### Comprendre les modèles avant de les entraîner
+
+Chaque algorithme est présenté selon la même logique : **principe → apprentissage → hyperparamètres → avantages / limites → rôle dans notre projet**.
+"""
+    )
+
+    with st.expander("Régression logistique — comprendre le modèle", expanded=True):
+        st.markdown(
+            """
+**Principe.** Le modèle combine linéairement les variables puis transforme le score obtenu en **probabilité de défaut** grâce à une fonction sigmoïde.
+
+**Comment il apprend.** Il ajuste automatiquement ses coefficients afin de réduire la log-loss sur les données d'entraînement.
+
+**Hyperparamètres dans notre application.** C contrôle la force de régularisation, penalty choisit L1 ou L2, et class_weight peut donner davantage de poids à une classe.
+
+**Avantages / limites.** Modèle simple, stable et particulièrement intéressant en scoring car ses coefficients sont interprétables. En revanche, sa structure reste essentiellement linéaire et peut manquer certaines relations complexes.
+
+**Dans notre projet.** C'est notre modèle de référence : il fournit directement une probabilité de défaut et constitue un bon compromis entre performance et explicabilité.
+"""
+        )
+
+    with st.expander("Arbre de décision — comprendre le modèle"):
+        st.markdown(
+            """
+**Principe.** L'arbre découpe progressivement les clients avec des règles simples afin d'obtenir des groupes aussi homogènes que possible vis-à-vis de default.
+
+**Comment il apprend.** À chaque nœud, il cherche une coupure qui sépare au mieux les classes, puis répète l'opération jusqu'aux feuilles.
+
+**Hyperparamètres dans notre application.** max_depth, min_samples_split, criterion et class_weight.
+
+**Avantages / limites.** Très lisible et facile à expliquer, mais un arbre trop profond peut surapprendre et devenir instable.
+
+**Dans notre projet.** Il sert de modèle non linéaire simple et interprétable, puis de base conceptuelle pour comprendre Random Forest et XGBoost.
+"""
+        )
+
+    with st.expander("kNN — comprendre le modèle"):
+        st.markdown(
+            """
+**Principe.** Pour un nouveau client, kNN cherche les k clients historiques les plus proches et attribue la classe majoritaire.
+
+**Comment il apprend.** Il n'estime pas de coefficients : il mémorise essentiellement les observations d'entraînement et effectue le calcul au moment de la prédiction.
+
+**Hyperparamètres dans notre application.** n_neighbors (k), weights et p pour la distance.
+
+**Avantages / limites.** Simple et pédagogique, mais sensible au choix de k et à l'échelle des variables ; la prédiction devient aussi plus coûteuse lorsque le dataset grandit.
+
+**Dans notre projet.** Il permet de comparer une approche fondée sur la proximité des profils clients avec des modèles paramétriques ou à base d'arbres. La standardisation est particulièrement importante pour lui.
+"""
+        )
+
+    with st.expander("Random Forest — comprendre le modèle"):
+        st.markdown(
+            """
+**Principe.** Random Forest entraîne beaucoup d'arbres sur des échantillons et des sous-ensembles de variables différents, puis agrège leurs prédictions.
+
+**Comment il apprend.** Chaque arbre est construit séparément ; la randomisation réduit leur corrélation et le vote final stabilise la prédiction.
+
+**Hyperparamètres dans notre application.** n_estimators, max_depth, min_samples_split et class_weight.
+
+**Avantages / limites.** Robuste au surapprentissage d'un arbre isolé et efficace sur les données tabulaires, mais moins directement interprétable qu'un arbre unique ou une régression logistique.
+
+**Dans notre projet.** Il représente une méthode ensembliste de type bagging et permet de vérifier si l'agrégation de nombreux arbres améliore le scoring.
+"""
+        )
+
+    with st.expander("XGBoost — comprendre le modèle"):
+        st.markdown(
+            """
+**Principe.** XGBoost construit des arbres de manière séquentielle : chaque nouvel arbre cherche à corriger les erreurs laissées par les précédents.
+
+**Comment il apprend.** Les nouveaux arbres sont ajoutés progressivement selon un objectif d'optimisation ; le learning_rate contrôle l'importance de chaque correction.
+
+**Hyperparamètres dans notre application.** n_estimators, max_depth, learning_rate, subsample et colsample_bytree.
+
+**Avantages / limites.** Très performant sur les données tabulaires et capable de modéliser des relations complexes, mais plus coûteux à régler et moins transparent qu'un modèle linéaire.
+
+**Dans notre projet.** Il représente notre modèle de boosting avancé et sert à mesurer le compromis entre performance prédictive et interprétabilité.
+"""
+        )
+
     selected_models = st.multiselect(
         "Modèles à entraîner",
         model_names,
