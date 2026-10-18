@@ -1,9 +1,10 @@
-"""Module 4 - evaluation metrics and curve helpers."""
+"""Module 4 - evaluation metrics, curves and threshold helpers."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.metrics import (
     auc,
     confusion_matrix,
@@ -14,6 +15,7 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
 
 def ks_statistic(y_true, y_prob) -> float:
@@ -28,7 +30,7 @@ def metrics_at_threshold(
     y_prob,
     threshold: float = 0.50,
 ) -> dict[str, float]:
-    """Compute business-oriented classification metrics at a decision threshold."""
+    """Compute scoring metrics, including threshold-dependent metrics."""
 
     y_pred = (np.asarray(y_prob) >= threshold).astype(int)
 
@@ -48,6 +50,8 @@ def metrics_at_threshold(
 
 
 def confusion_at_threshold(y_true, y_prob, threshold: float = 0.50) -> np.ndarray:
+    """Return confusion matrix ordered as [[TN, FP], [FN, TP]]."""
+
     y_pred = (np.asarray(y_prob) >= threshold).astype(int)
     return confusion_matrix(y_true, y_pred, labels=[0, 1])
 
@@ -76,6 +80,111 @@ def precision_recall_points(y_true, y_prob) -> pd.DataFrame:
             "threshold": threshold_values,
         }
     )
+
+
+def cross_validated_probabilities(
+    estimator,
+    X_train,
+    y_train,
+    *,
+    cv_folds: int = 5,
+    random_state: int = 42,
+) -> np.ndarray:
+    """Generate out-of-fold probabilities using training data only.
+
+    These probabilities are intended for threshold selection. The held-out test
+    set is deliberately not used here.
+    """
+
+    cv = StratifiedKFold(
+        n_splits=cv_folds,
+        shuffle=True,
+        random_state=random_state,
+    )
+    probabilities = cross_val_predict(
+        clone(estimator),
+        X_train,
+        y_train,
+        cv=cv,
+        method="predict_proba",
+        n_jobs=-1,
+    )
+    return np.asarray(probabilities)[:, 1]
+
+
+def threshold_analysis(
+    y_true,
+    y_prob,
+    *,
+    minimum: float = 0.05,
+    maximum: float = 0.95,
+    step: float = 0.01,
+) -> pd.DataFrame:
+    """Evaluate the precision/recall trade-off over a grid of thresholds."""
+
+    thresholds = np.round(
+        np.arange(minimum, maximum + step / 2, step),
+        2,
+    )
+    rows = []
+
+    for threshold in thresholds:
+        metrics = metrics_at_threshold(y_true, y_prob, float(threshold))
+        matrix = confusion_at_threshold(y_true, y_prob, float(threshold))
+        tn, fp, fn, tp = matrix.ravel()
+
+        rows.append(
+            {
+                "Seuil": float(threshold),
+                "Précision": metrics["Précision"],
+                "Rappel": metrics["Rappel"],
+                "F1": metrics["F1"],
+                "VN": int(tn),
+                "FP": int(fp),
+                "FN": int(fn),
+                "VP": int(tp),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def recommend_threshold(
+    y_true,
+    y_prob,
+    *,
+    objective: str = "balance",
+    fn_cost: float = 1.0,
+    fp_cost: float = 1.0,
+) -> dict:
+    """Recommend a threshold from validation predictions.
+
+    objective:
+      - "balance": maximise F1.
+      - "cost": minimise fn_cost * FN + fp_cost * FP.
+    """
+
+    table = threshold_analysis(y_true, y_prob)
+
+    if objective == "balance":
+        best_index = table["F1"].idxmax()
+        criterion = "F1 maximal sur validation"
+        table["Coût"] = np.nan
+    elif objective == "cost":
+        table["Coût"] = fn_cost * table["FN"] + fp_cost * table["FP"]
+        min_cost = table["Coût"].min()
+        candidates = table[table["Coût"] == min_cost]
+        best_index = candidates["F1"].idxmax()
+        criterion = (
+            f"coût minimal sur validation "
+            f"(FN×{fn_cost:g} + FP×{fp_cost:g})"
+        )
+    else:
+        raise ValueError("objective must be 'balance' or 'cost'")
+
+    best = table.loc[best_index].to_dict()
+    best["Critère"] = criterion
+    return best
 
 
 def comparison_table(results: dict) -> pd.DataFrame:
