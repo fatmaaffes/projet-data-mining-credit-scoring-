@@ -32,8 +32,10 @@ from src.data import (
 from src.evaluation import (
     comparison_table,
     confusion_at_threshold,
+    cross_validated_probabilities,
     metrics_at_threshold,
     precision_recall_points,
+    recommend_threshold,
     roc_points,
 )
 from src.explainability import (
@@ -53,10 +55,58 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+<style>
+div[data-testid="stMetric"] {
+    border: 1px solid rgba(120, 130, 150, 0.22);
+    border-radius: 12px;
+    padding: 0.65rem 0.8rem;
+}
+[data-testid="stSidebar"] {
+    border-right: 1px solid rgba(120, 130, 150, 0.16);
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_data(show_spinner=False)
 def get_data():
     return load_german_credit()
+
+
+def module_intro(goal: str, topics: str, importance: str) -> None:
+    """Shared pedagogical header used at the beginning of each module."""
+
+    st.markdown("### 🎯 But du module")
+    st.info(goal)
+    st.markdown("### 🧩 Ce qu’on va traiter")
+    st.markdown(topics)
+    st.markdown("### 🔗 Pourquoi c’est important pour notre Credit Scoring")
+    st.success(importance)
+
+
+def interpretation_box(text: str, *, title: str = "📌 Interprétation") -> None:
+    st.markdown(f"**{title}**")
+    st.info(text)
+
+
+def metric_guide() -> None:
+    guide = pd.DataFrame(
+        [
+            ["AUC-ROC", "Capacité globale à classer un mauvais payeur au-dessus d’un bon.", "Non"],
+            ["Gini", "Indicateur bancaire dérivé de l’AUC : 2 × AUC − 1.", "Non"],
+            ["KS", "Séparation maximale entre les scores des bons et mauvais payeurs.", "Non"],
+            ["Précision", "Parmi les clients prédits en défaut, part réellement en défaut.", "Oui"],
+            ["Rappel", "Parmi tous les vrais défauts, part détectée par le modèle.", "Oui"],
+            ["F1", "Compromis entre précision et rappel.", "Oui"],
+            ["PR-AUC", "Qualité du compromis précision-rappel sur l’ensemble des seuils.", "Non"],
+        ],
+        columns=["Métrique", "Comment la lire ?", "Dépend du seuil choisi ?"],
+    )
+    st.dataframe(guide, use_container_width=True, hide_index=True)
 
 
 @st.cache_resource(show_spinner=False)
@@ -106,9 +156,13 @@ module = st.sidebar.radio(
     "Navigation",
     [
         "1 · Données & EDA",
+        "1.1 · Conclusion EDA",
         "2 · Préparation",
+        "2.1 · Conclusion Préparation",
         "3 · Modélisation",
+        "3.1 · Conclusion Modélisation",
         "4 · Évaluation",
+        "4.1 · Conclusion Évaluation",
         "5 · Explainable AI",
         "6 · FastAPI",
     ],
@@ -119,6 +173,11 @@ st.sidebar.caption("Classe positive : default = 1 (mauvais payeur / défaut)")
 
 if module == "1 · Données & EDA":
     st.header("Module 1 — Données & EDA")
+    module_intro(
+        "Comprendre la qualité, la structure et les relations présentes dans les données avant toute modélisation.",
+        "Aperçu du dataset, statistiques descriptives, distributions numériques et catégorielles, cible et corrélations.",
+        "Un modèle de crédit fiable commence par des données comprises : on vérifie ici les déséquilibres, les valeurs extrêmes, les variables potentiellement discriminantes et les risques de redondance.",
+    )
 
     (
         tab_overview,
@@ -162,6 +221,10 @@ if module == "1 · Données & EDA":
         total_missing = int(missing["valeurs_manquantes"].sum())
         if total_missing == 0:
             st.info("Aucune valeur manquante dans ce dataset.")
+            interpretation_box(
+                "Le dataset contient 1 000 clients, 20 variables explicatives et aucune valeur manquante. "
+                "La qualité structurelle est donc suffisante pour poursuivre sans correction de valeurs absentes."
+            )
         else:
             st.warning(f"{total_missing} valeurs manquantes détectées.")
 
@@ -181,6 +244,11 @@ if module == "1 · Données & EDA":
 - 50% : médiane
 - 75% : troisième quartile (Q3)
 """
+        )
+        interpretation_box(
+            "Les variables numériques n'ont pas toutes la même échelle ni la même dispersion. "
+            "Par exemple, credit_amount peut prendre des valeurs beaucoup plus élevées que age ou installment_rate. "
+            "Les valeurs extrêmes observées ne sont pas automatiquement des erreurs : elles peuvent correspondre à de vrais profils de crédit et seront conservées sauf preuve contraire."
         )
 
     with tab_numeric:
@@ -234,11 +302,32 @@ if module == "1 · Données & EDA":
         )
         st.plotly_chart(box, use_container_width=True)
 
-        st.dataframe(
+        grouped_numeric = (
             df.groupby("default")[feature]
             .describe()
-            .rename(index=TARGET_LABELS),
-            use_container_width=True,
+            .rename(index=TARGET_LABELS)
+        )
+        st.dataframe(grouped_numeric, use_container_width=True)
+
+        series = df[feature].dropna()
+        skewness = float(series.skew()) if len(series) > 2 else 0.0
+        q1, q3 = series.quantile([0.25, 0.75])
+        iqr = q3 - q1
+        outliers = int(((series < q1 - 1.5 * iqr) | (series > q3 + 1.5 * iqr)).sum())
+        med_good = float(df.loc[df["default"] == 0, feature].median())
+        med_bad = float(df.loc[df["default"] == 1, feature].median())
+        shape_text = (
+            "asymétrique vers les grandes valeurs"
+            if skewness > 0.5
+            else "asymétrique vers les petites valeurs"
+            if skewness < -0.5
+            else "relativement équilibrée"
+        )
+        interpretation_box(
+            f"La distribution de **{feature}** est {shape_text} (skewness ≈ {skewness:.2f}) et "
+            f"{outliers} observations sont signalées comme valeurs extrêmes par la règle IQR. "
+            f"La médiane est {med_good:.2f} chez les bons payeurs contre {med_bad:.2f} chez les défauts. "
+            "Une différence entre les deux groupes suggère un pouvoir discriminant potentiel, sans prouver une causalité."
         )
 
     with tab_categorical:
@@ -286,6 +375,15 @@ if module == "1 · Données & EDA":
         )
         st.plotly_chart(rate_chart, use_container_width=True)
 
+        highest = default_rate.iloc[0]
+        lowest = default_rate.iloc[-1]
+        interpretation_box(
+            f"Pour **{feature}**, le taux de défaut varie de {lowest['taux_defaut']:.2f}% "
+            f"({lowest[feature]}) à {highest['taux_defaut']:.2f}% ({highest[feature]}). "
+            "Plus l'écart entre modalités est marqué, plus cette variable peut aider le modèle à distinguer les profils de risque. "
+            "Cette association reste descriptive et ne doit pas être interprétée comme une relation causale."
+        )
+
     with tab_target:
         st.subheader("Répartition de la cible")
 
@@ -313,6 +411,10 @@ if module == "1 · Données & EDA":
         st.caption(
             "Dans ce projet, la classe positive est default = 1 "
             "(mauvais payeur / défaut)."
+        )
+        interpretation_box(
+            "La cible contient environ 70 % de bons payeurs et 30 % de mauvais payeurs. "
+            "Le déséquilibre est modéré : il justifie une séparation stratifiée et l'utilisation de métriques autres que l'accuracy, notamment rappel, PR-AUC, Gini et KS."
         )
 
     with tab_corr:
@@ -344,6 +446,38 @@ if module == "1 · Données & EDA":
             "proche de -1 une forte relation linéaire négative, et proche de 0 peu de "
             "relation linéaire. Corrélation ne signifie pas causalité."
         )
+        if {"duration", "credit_amount"}.issubset(corr.columns):
+            duration_credit_corr = float(corr.loc["duration", "credit_amount"])
+            interpretation_box(
+                f"La plupart des corrélations numériques sont faibles : il n'y a pas de forte redondance linéaire généralisée. "
+                f"La relation la plus notable métier est **duration ↔ credit_amount = {duration_credit_corr:.2f}** : "
+                "les montants de crédit plus élevés tendent à être associés à des durées plus longues. "
+                "La relation reste non causale et n'est pas assez extrême pour justifier de supprimer automatiquement l'une des deux variables."
+            )
+
+
+elif module == "1.1 · Conclusion EDA":
+    st.header("1.1 — Conclusion EDA")
+    st.markdown("### 📌 Ce que nous avons observé")
+    st.write(
+        "German Credit contient 1 000 clients, 20 variables explicatives et une cible binaire. "
+        "Aucune valeur manquante n'est présente. La cible est répartie approximativement à 70 % de bons payeurs et 30 % de défauts."
+    )
+    st.markdown("### 🧠 Ce que cela signifie")
+    st.write(
+        "Les variables numériques et catégorielles apportent des informations complémentaires. "
+        "Certaines modalités, notamment checking_status, présentent des taux de défaut nettement différents. "
+        "La majorité des corrélations numériques restent faibles ; duration et credit_amount présentent toutefois une corrélation positive notable d'environ 0,62."
+    )
+    st.markdown("### ⚠️ Points à garder en tête")
+    st.write(
+        "Les valeurs extrêmes ne sont pas automatiquement des erreurs, et une association statistique n'implique pas une causalité. "
+        "Aucune redondance linéaire majeure ne justifie à ce stade une suppression automatique de variables."
+    )
+    st.markdown("### ✅ Décision / transition")
+    st.success(
+        "Le dataset est exploitable pour la modélisation. L'étape suivante consiste à séparer train/test, encoder les variables catégorielles et mettre les variables numériques sur une échelle adaptée, sans fuite de données."
+    )
 
 
 elif module == "2 · Préparation":
