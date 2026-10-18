@@ -55,38 +55,38 @@ st.set_page_config(
 )
 
 FINTECH_COLORS = [
-    "#1F6F8B",
+    "#264653",
     "#2A9D8F",
-    "#D4A84F",
-    "#7A6FA8",
-    "#C65353",
+    "#D08C60",
+    "#7B6D8D",
+    "#B65C5C",
 ]
 
 MODEL_COLORS = {
-    "Régression logistique": "#1F6F8B",
+    "Régression logistique": "#264653",
     "Random Forest": "#2A9D8F",
-    "XGBoost": "#D4A84F",
-    "kNN": "#7A6FA8",
-    "Arbre de décision": "#C65353",
+    "XGBoost": "#D08C60",
+    "kNN": "#7B6D8D",
+    "Arbre de décision": "#B65C5C",
 }
 
-px.defaults.template = "plotly_dark"
+px.defaults.template = "plotly_white"
 px.defaults.color_discrete_sequence = FINTECH_COLORS
 
 st.markdown(
     """
 <style>
 :root {
-    --bg: #0B1118;
-    --surface: #131D27;
-    --surface-2: #16222E;
-    --primary: #1F6F8B;
+    --bg: #F7F4EE;
+    --surface: #FFFFFF;
+    --surface-2: #EEF3F1;
+    --primary: #264653;
     --secondary: #2A9D8F;
-    --accent: #D4A84F;
-    --danger: #C65353;
-    --text: #F1F4F7;
-    --muted: #9CA8B5;
-    --border: #293442;
+    --accent: #D08C60;
+    --danger: #B65C5C;
+    --text: #1F2933;
+    --muted: #667085;
+    --border: #D8DEE4;
 }
 
 .stApp {
@@ -94,16 +94,25 @@ st.markdown(
     color: var(--text);
 }
 
+.block-container {
+    padding-top: 2rem;
+}
+
 [data-testid="stSidebar"] {
-    background: #0F1720;
+    background: #F1EEE7;
     border-right: 1px solid var(--border);
 }
 
+[data-testid="stSidebar"] * {
+    color: var(--text);
+}
+
 div[data-testid="stMetric"] {
-    background: linear-gradient(180deg, #16222E 0%, #131D27 100%);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 0.75rem 0.9rem;
+    border-radius: 14px;
+    padding: 0.8rem 0.95rem;
+    box-shadow: 0 2px 10px rgba(38, 70, 83, 0.05);
 }
 
 div[data-testid="stMetric"] label,
@@ -112,25 +121,26 @@ div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
 }
 
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: var(--text) !important;
+    color: var(--primary) !important;
 }
 
 .stButton > button {
     background: var(--primary);
     color: white;
-    border: 1px solid #2F819D;
-    border-radius: 9px;
+    border: 1px solid var(--primary);
+    border-radius: 10px;
     font-weight: 600;
+    box-shadow: none;
 }
 
 .stButton > button:hover {
-    background: #2A7D99;
-    border-color: var(--secondary);
+    background: #315A69;
+    border-color: #315A69;
     color: white;
 }
 
 [data-baseweb="tab-list"] {
-    gap: 0.2rem;
+    gap: 0.25rem;
     border-bottom: 1px solid var(--border);
 }
 
@@ -139,23 +149,36 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
 }
 
 button[role="tab"][aria-selected="true"] {
-    color: var(--text) !important;
+    color: var(--primary) !important;
     border-bottom-color: var(--accent) !important;
 }
 
 [data-testid="stExpander"] {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
+    box-shadow: 0 1px 8px rgba(38, 70, 83, 0.04);
 }
 
 [data-testid="stDataFrame"] {
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
 }
 
+[data-testid="stAlert"] {
+    border-radius: 12px;
+    border: 1px solid #D6E2DE;
+    background: #F4F8F6;
+    color: var(--text);
+}
+
 h1, h2, h3, h4 {
+    color: var(--primary);
+    letter-spacing: -0.015em;
+}
+
+p, li, label, span {
     color: var(--text);
 }
 
@@ -164,7 +187,20 @@ small, .stCaption, [data-testid="stCaptionContainer"] {
 }
 
 a {
-    color: #66B6CB !important;
+    color: var(--secondary) !important;
+}
+
+hr {
+    border-color: var(--border);
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    border-radius: 8px;
+    padding: 0.2rem 0.35rem;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+    background: #E7ECE9;
 }
 </style>
 """,
@@ -543,8 +579,8 @@ if module == "1 · Données & EDA":
                 zmin=-1,
                 zmax=1,
                 colorscale=[
-                    [0.0, "#C65353"],
-                    [0.5, "#16222E"],
+                    [0.0, "#B65C5C"],
+                    [0.5, "#F7F4EE"],
                     [1.0, "#2A9D8F"],
                 ],
                 text=corr.values,
@@ -1509,9 +1545,9 @@ elif module == "4 · Évaluation":
                 z=matrix,
                 x=["Prédit bon (0)", "Prédit défaut (1)"],
                 colorscale=[
-                    [0.0, "#131D27"],
-                    [0.5, "#1F6F8B"],
-                    [1.0, "#BFE3E0"],
+                    [0.0, "#F2F5F4"],
+                    [0.5, "#86B8B0"],
+                    [1.0, "#264653"],
                 ],
                 y=["Réel bon (0)", "Réel défaut (1)"],
                 text=matrix,
