@@ -163,7 +163,6 @@ module = st.sidebar.radio(
         "3.1 · Conclusion Modélisation",
         "4 · Évaluation",
         "4.1 · Conclusion Évaluation",
-        "5 · Explainable AI",
         "6 · FastAPI",
     ],
 )
