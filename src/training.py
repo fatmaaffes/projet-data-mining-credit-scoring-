@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from sklearn.base import clone
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from sklearn.pipeline import Pipeline
 
 from src.evaluation import metrics_at_threshold
 from src.models import build_model, search_space
@@ -30,7 +32,11 @@ def train_one_model(
     cv_folds: int = 5,
     n_iter: int = 8,
 ) -> ModelResult:
-    """Train one classifier, optionally with randomized hyperparameter search."""
+    """Train one classifier, optionally with leakage-safe randomized search.
+
+    During hyperparameter tuning, preprocessing is refitted inside every
+    cross-validation fold. The held-out test set remains untouched.
+    """
 
     params = params or {}
     estimator = build_model(name, **params)
@@ -43,9 +49,20 @@ def train_one_model(
             random_state=42,
         )
 
+        tuning_pipeline = Pipeline(
+            [
+                ("preprocessor", clone(prepared.preprocessor)),
+                ("model", estimator),
+            ]
+        )
+        prefixed_search_space = {
+            f"model__{key}": values
+            for key, values in search_space(name).items()
+        }
+
         search = RandomizedSearchCV(
-            estimator=estimator,
-            param_distributions=search_space(name),
+            estimator=tuning_pipeline,
+            param_distributions=prefixed_search_space,
             n_iter=n_iter,
             scoring="roc_auc",
             cv=cv,
@@ -53,9 +70,15 @@ def train_one_model(
             n_jobs=-1,
             refit=True,
         )
-        search.fit(prepared.X_train, prepared.y_train)
-        estimator = search.best_estimator_
-        best_params = search.best_params_
+        search.fit(prepared.X_train_raw, prepared.y_train)
+
+        # The refitted model has seen preprocessing learned only from the full
+        # training split. Its transformed feature order matches prepared.X_train.
+        estimator = search.best_estimator_.named_steps["model"]
+        best_params = {
+            key.removeprefix("model__"): value
+            for key, value in search.best_params_.items()
+        }
     else:
         estimator.fit(prepared.X_train, prepared.y_train)
 
