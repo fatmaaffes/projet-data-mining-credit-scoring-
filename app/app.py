@@ -40,7 +40,10 @@ from src.evaluation import (
 )
 from src.explainability import (
     compute_shap_values,
+    grouped_shap_importance,
+    lime_contributions_by_feature,
     lime_explanation,
+    local_shap_contributions,
     native_importance,
     permutation_importance_df,
     plain_language_summary,
@@ -299,6 +302,7 @@ module = st.sidebar.radio(
         "3.1 · Conclusion Modélisation",
         "4 · Évaluation",
         "4.1 · Conclusion Évaluation",
+        "5 · Explainable AI",
         "6 · FastAPI",
     ],
 )
@@ -812,6 +816,14 @@ elif module == "2 · Préparation":
         st.session_state.pop("threshold_recommendations", None)
         st.session_state.pop("threshold_oof_probs", None)
         st.session_state.pop("last_threshold_recommendation", None)
+        for key in [
+            "global_shap",
+            "global_shap_model",
+            "global_shap_sample_index",
+            "local_xai",
+            "xai_permutation",
+        ]:
+            st.session_state.pop(key, None)
         st.success(
             "Configuration enregistrée. Les anciens modèles ont été invalidés afin qu'ils soient réentraînés avec cette préparation."
         )
@@ -1204,6 +1216,14 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
         st.session_state.threshold_recommendations = {}
         st.session_state.threshold_oof_probs = {}
         st.session_state.pop("last_threshold_recommendation", None)
+        for key in [
+            "global_shap",
+            "global_shap_model",
+            "global_shap_sample_index",
+            "local_xai",
+            "xai_permutation",
+        ]:
+            st.session_state.pop(key, None)
         st.success("Entraînement terminé.")
 
     if "model_results" in st.session_state:
@@ -1721,12 +1741,20 @@ elif module == "4.1 · Conclusion Évaluation":
 
 elif module == "5 · Explainable AI":
     st.header("Module 5 — Explainable AI")
+    module_intro(
+        "Comprendre pourquoi le modèle produit une prédiction, à la fois globalement et pour un client précis.",
+        "Importance des variables, importance par permutation, SHAP global, dépendance SHAP, SHAP local, LIME et analyse critique.",
+        "En scoring de crédit, une probabilité seule ne suffit pas : il faut pouvoir expliquer les facteurs qui poussent la décision vers le risque ou vers le bon payeur.",
+    )
 
     if "model_results" not in st.session_state:
         st.warning("Entraînez d'abord au moins un modèle dans le Module 3.")
     else:
         results = st.session_state.model_results
         prepared = st.session_state.prepared_data
+        original_features = (
+            prepared.numeric_features + prepared.categorical_features
+        )
 
         selected_model = st.selectbox(
             "Modèle à expliquer",
@@ -1736,168 +1764,545 @@ elif module == "5 · Explainable AI":
         result = results[selected_model]
         model = result.estimator
 
-        st.subheader("Explication globale")
-
-        native = native_importance(model, prepared.feature_names)
-        if native is None:
-            st.info(
-                "Ce modèle n'expose pas directement une importance native des variables."
-            )
-        else:
-            top_native = native.head(15)
-            native_fig = px.bar(
-                top_native.sort_values("importance"),
-                x="importance",
-                y="feature",
-                orientation="h",
-                title="Importance native du modèle",
-            )
-            st.plotly_chart(native_fig, use_container_width=True)
-
-        with st.spinner("Calcul de l'importance par permutation..."):
-            perm = permutation_importance_df(
-                model,
-                prepared.X_test,
-                prepared.y_test,
-                prepared.feature_names,
-                n_repeats=5,
-            )
-
-        perm_top = perm.head(15)
-        perm_fig = px.bar(
-            perm_top.sort_values("importance"),
-            x="importance",
-            y="feature",
-            orientation="h",
-            error_x="std",
-            title="Importance par permutation",
-        )
-        st.plotly_chart(perm_fig, use_container_width=True)
-
-        if st.button("Calculer SHAP global", type="primary"):
-            import shap
-
-            sample = prepared.X_test.sample(
-                n=min(25, len(prepared.X_test)),
-                random_state=42,
-            )
-
-            with st.spinner("Calcul SHAP en cours..."):
-                _, shap_values = compute_shap_values(
-                    model,
-                    prepared.X_train,
-                    sample,
-                    prepared.feature_names,
-                )
-
-            st.session_state.global_shap = shap_values
-            st.session_state.global_shap_model = selected_model
-
-        if (
-            "global_shap" in st.session_state
-            and st.session_state.get("global_shap_model") == selected_model
-        ):
-            import shap
-
-            shap_values = st.session_state.global_shap
-
-            st.markdown("**SHAP beeswarm — importance et sens des contributions**")
-            plt.figure()
-            shap.plots.beeswarm(
-                shap_values,
-                max_display=15,
-                show=False,
-            )
-            st.pyplot(plt.gcf(), clear_figure=True)
-
-            mean_abs = abs(shap_values.values).mean(axis=0)
-            top_index = int(mean_abs.argmax())
-            top_feature = prepared.feature_names[top_index]
-
-            st.markdown(f"**Dépendance SHAP — {top_feature}**")
-            plt.figure()
-            shap.plots.scatter(
-                shap_values[:, top_index],
-                show=False,
-            )
-            st.pyplot(plt.gcf(), clear_figure=True)
-
-        st.divider()
-        st.subheader("Explication locale d'un individu")
-
-        row_position = st.number_input(
-            "Position de l'individu dans le jeu de test",
-            min_value=0,
-            max_value=len(prepared.X_test) - 1,
-            value=0,
-            step=1,
-        )
-
-        local_row = prepared.X_test.iloc[[int(row_position)]]
-        probability = float(model.predict_proba(local_row)[0, 1])
-
-        threshold = st.slider(
-            "Seuil pour la décision locale",
-            0.05,
-            0.95,
-            0.50,
-            0.01,
-            key="xai_threshold",
-        )
-
-        decision = 1 if probability >= threshold else 0
-
         c1, c2 = st.columns(2)
-        c1.metric("Probabilité de défaut", f"{probability:.1%}")
-        c2.metric(
-            "Décision",
-            "Défaut / risque élevé" if decision == 1 else "Bon payeur",
+        c1.metric("Modèle sélectionné", selected_model)
+        c2.metric("AUC-ROC sur le test", f"{result.metrics['AUC-ROC']:.4f}")
+
+        (
+            tab_understand,
+            tab_global,
+            tab_local,
+            tab_critical,
+        ) = st.tabs(
+            [
+                "Comprendre XAI",
+                "Explication globale",
+                "Explication locale",
+                "Analyse critique",
+            ]
         )
 
-        if st.button("Générer SHAP + LIME pour cet individu"):
-            import shap
-
-            with st.spinner("Génération des explications locales..."):
-                _, local_shap = compute_shap_values(
-                    model,
-                    prepared.X_train,
-                    local_row,
-                    prepared.feature_names,
-                )
-
-                lime_df = lime_explanation(
-                    model,
-                    prepared.X_train,
-                    local_row.iloc[0],
-                    prepared.feature_names,
-                    num_features=10,
-                )
-
-            st.markdown("**SHAP waterfall**")
-            plt.figure()
-            shap.plots.waterfall(
-                local_shap[0],
-                max_display=12,
-                show=False,
+        with tab_understand:
+            st.subheader("Pourquoi ajouter XAI ?")
+            st.write(
+                "Le modèle donne d'abord une probabilité de défaut. XAI sert ensuite à expliquer "
+                "quelles variables ont influencé cette estimation. Il ne remplace pas le modèle et "
+                "n'améliore pas directement sa performance : il rend sa décision plus compréhensible."
             )
-            st.pyplot(plt.gcf(), clear_figure=True)
 
-            st.markdown("**LIME — même individu**")
-            st.dataframe(lime_df, use_container_width=True, hide_index=True)
+            guide_xai = pd.DataFrame(
+                [
+                    [
+                        "Globale",
+                        "Comment le modèle se comporte-t-il en général ?",
+                        "Importance, permutation, SHAP beeswarm, dépendance",
+                    ],
+                    [
+                        "Locale",
+                        "Pourquoi ce client précis obtient-il cette prédiction ?",
+                        "SHAP waterfall, LIME",
+                    ],
+                ],
+                columns=["Portée", "Question", "Outils utilisés"],
+            )
+            st.dataframe(
+                guide_xai,
+                use_container_width=True,
+                hide_index=True,
+            )
 
-            summary = plain_language_summary(
+            st.markdown("#### SHAP et LIME en une phrase")
+            st.write(
+                "**SHAP** répartit la prédiction entre les variables : une contribution positive "
+                "pousse ici vers default = 1, donc vers davantage de risque, tandis qu'une "
+                "contribution négative réduit ce risque."
+            )
+            st.write(
+                "**LIME** construit autour du client un petit modèle linéaire temporaire qui imite "
+                "localement le modèle à expliquer. Les coefficients de ce modèle local donnent les "
+                "facteurs qui poussent la prédiction dans un sens ou dans l'autre."
+            )
+            st.info(
+                "Dans l'application, on commence par comprendre le modèle dans son ensemble, "
+                "puis on choisit un client précis pour expliquer sa décision."
+            )
+
+        with tab_global:
+            st.subheader("1 · Importance propre au modèle")
+            native = native_importance(
+                model,
                 prepared.feature_names,
-                local_shap[0],
-                top_n=3,
             )
-            st.success(summary)
+            if native is None:
+                st.info(
+                    "Ce modèle n'expose pas directement une importance native des variables."
+                )
+            else:
+                top_native = native.head(15)
+                native_fig = px.bar(
+                    top_native.sort_values("importance"),
+                    x="importance",
+                    y="feature",
+                    orientation="h",
+                    title="Importance native — variables transformées",
+                )
+                st.plotly_chart(native_fig, use_container_width=True)
+                st.caption(
+                    "Pour la régression logistique, on affiche ici la valeur absolue des coefficients. "
+                    "Pour les modèles à arbres, il s'agit de leur importance interne. "
+                    "L'importance indique combien une variable compte, pas dans quel sens elle agit."
+                )
 
-        st.warning(
-            "Équité : certaines variables peuvent être sensibles, notamment l'âge, "
-            "le sexe / statut personnel ou le statut de travailleur étranger. "
-            "Une bonne performance ne suffit pas : leur usage doit être discuté "
-            "dans l'analyse critique."
-        )
+            st.subheader("2 · Importance par permutation")
+            st.write(
+                "On mélange une variable et on mesure la baisse d'AUC-ROC. "
+                "Si la performance chute fortement, le modèle dépend beaucoup de cette variable."
+            )
+
+            perm_cache = st.session_state.get("xai_permutation", {})
+            if (
+                selected_model not in perm_cache
+                and st.button(
+                    "Calculer l'importance par permutation",
+                    key="compute_permutation_xai",
+                )
+            ):
+                with st.spinner("Calcul de l'importance par permutation..."):
+                    perm = permutation_importance_df(
+                        model,
+                        prepared.X_test,
+                        prepared.y_test,
+                        prepared.feature_names,
+                        n_repeats=5,
+                    )
+                perm_cache[selected_model] = perm
+                st.session_state.xai_permutation = perm_cache
+
+            if selected_model in st.session_state.get("xai_permutation", {}):
+                perm = st.session_state.xai_permutation[selected_model]
+                perm_top = perm.head(15)
+                perm_fig = px.bar(
+                    perm_top.sort_values("importance"),
+                    x="importance",
+                    y="feature",
+                    orientation="h",
+                    error_x="std",
+                    title="Importance par permutation — baisse d'AUC-ROC",
+                )
+                st.plotly_chart(perm_fig, use_container_width=True)
+
+                top_perm = perm.iloc[0]
+                interpretation_box(
+                    f"La variable transformée la plus importante par permutation est "
+                    f"**{top_perm['feature']}**. La permutation sert ici de mesure comparable "
+                    "entre modèles car elle observe directement la perte de performance."
+                )
+
+            st.subheader("3 · SHAP global")
+            st.write(
+                "SHAP attribue à chaque variable une contribution à la prédiction. "
+                "Pour l'importance globale, on regarde en moyenne la taille absolue de ces contributions "
+                "sur plusieurs clients."
+            )
+
+            if st.button(
+                "Calculer SHAP global",
+                type="primary",
+                key="compute_global_shap",
+            ):
+                import shap
+
+                sample = prepared.X_test.sample(
+                    n=min(25, len(prepared.X_test)),
+                    random_state=42,
+                )
+
+                with st.spinner("Calcul SHAP en cours..."):
+                    _, shap_values = compute_shap_values(
+                        model,
+                        prepared.X_train,
+                        sample,
+                        prepared.feature_names,
+                    )
+
+                st.session_state.global_shap = shap_values
+                st.session_state.global_shap_model = selected_model
+                st.session_state.global_shap_sample_index = list(sample.index)
+
+            if (
+                "global_shap" in st.session_state
+                and st.session_state.get("global_shap_model") == selected_model
+            ):
+                import shap
+
+                shap_values = st.session_state.global_shap
+
+                grouped = grouped_shap_importance(
+                    shap_values,
+                    prepared.feature_names,
+                    original_features,
+                )
+                grouped_top = grouped.head(10)
+
+                grouped_fig = px.bar(
+                    grouped_top.sort_values("importance"),
+                    x="importance",
+                    y="variable",
+                    orientation="h",
+                    title="Importance SHAP globale — variables originales",
+                )
+                st.plotly_chart(grouped_fig, use_container_width=True)
+
+                top_names = grouped_top["variable"].head(3).tolist()
+                interpretation_box(
+                    "Les variables qui font le plus varier les prédictions sur l'échantillon expliqué sont : "
+                    + ", ".join(f"**{name}**" for name in top_names)
+                    + ". Les colonnes issues du One-Hot Encoding sont regroupées ici pour revenir aux variables métier d'origine."
+                )
+
+                with st.expander(
+                    "Voir le SHAP beeswarm détaillé"
+                ):
+                    st.caption(
+                        "Chaque point représente un client. À droite, la contribution augmente le risque de défaut ; "
+                        "à gauche, elle le réduit. La couleur représente la valeur de la variable transformée. "
+                        "Les modalités One-Hot apparaissent séparément dans ce graphique détaillé."
+                    )
+                    plt.figure()
+                    shap.plots.beeswarm(
+                        shap_values,
+                        max_display=15,
+                        show=False,
+                    )
+                    st.pyplot(plt.gcf(), clear_figure=True)
+
+                numeric_candidates = [
+                    feature
+                    for feature in prepared.numeric_features
+                    if feature in prepared.feature_names
+                ]
+
+                if numeric_candidates:
+                    ranked_numeric = [
+                        feature
+                        for feature in grouped["variable"].tolist()
+                        if feature in numeric_candidates
+                    ]
+                    default_numeric = (
+                        ranked_numeric[0]
+                        if ranked_numeric
+                        else numeric_candidates[0]
+                    )
+                    dep_feature = st.selectbox(
+                        "Variable numérique pour le graphique de dépendance",
+                        numeric_candidates,
+                        index=numeric_candidates.index(default_numeric),
+                        key="xai_dependence_feature",
+                    )
+
+                    sample_index = st.session_state.global_shap_sample_index
+                    raw_values = prepared.X_test_raw.loc[
+                        sample_index,
+                        dep_feature,
+                    ].to_numpy()
+                    transformed_index = prepared.feature_names.index(dep_feature)
+                    contributions = shap_values.values[:, transformed_index]
+
+                    dependence_df = pd.DataFrame(
+                        {
+                            dep_feature: raw_values,
+                            "Contribution SHAP": contributions,
+                        }
+                    )
+                    dep_fig = px.scatter(
+                        dependence_df,
+                        x=dep_feature,
+                        y="Contribution SHAP",
+                        title=f"Dépendance SHAP — {dep_feature}",
+                    )
+                    dep_fig.add_hline(y=0, line_dash="dash")
+                    st.plotly_chart(dep_fig, use_container_width=True)
+                    st.caption(
+                        "L'axe horizontal conserve ici la valeur originale de la variable. "
+                        "Une contribution SHAP positive pousse la probabilité vers le défaut ; "
+                        "une contribution négative la réduit."
+                    )
+
+        with tab_local:
+            st.subheader("Choisir un client du jeu de test")
+            row_position = st.number_input(
+                "Position du client dans le jeu de test",
+                min_value=0,
+                max_value=len(prepared.X_test) - 1,
+                value=0,
+                step=1,
+                key="xai_row_position",
+            )
+            row_position = int(row_position)
+
+            local_row = prepared.X_test.iloc[[row_position]]
+            local_raw = prepared.X_test_raw.iloc[[row_position]]
+            actual_class = int(prepared.y_test.iloc[row_position])
+            probability = float(model.predict_proba(local_row)[0, 1])
+
+            threshold = st.slider(
+                "Seuil pour la décision locale",
+                0.05,
+                0.95,
+                0.50,
+                0.01,
+                key="xai_threshold",
+            )
+            decision = 1 if probability >= threshold else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Probabilité de défaut", f"{probability:.1%}")
+            c2.metric(
+                "Décision au seuil choisi",
+                "Défaut / risque élevé" if decision == 1 else "Bon payeur",
+            )
+            c3.metric(
+                "Classe réelle",
+                "Défaut" if actual_class == 1 else "Bon payeur",
+            )
+
+            with st.expander("Voir le profil original du client"):
+                profile = local_raw.T.copy()
+                profile.columns = ["Valeur"]
+                st.dataframe(profile, use_container_width=True)
+
+            st.write(
+                "On explique maintenant exactement la même prédiction avec SHAP puis avec LIME."
+            )
+
+            if st.button(
+                "Générer SHAP + LIME pour ce client",
+                type="primary",
+                key="compute_local_xai",
+            ):
+                with st.spinner("Génération des explications locales..."):
+                    _, local_shap = compute_shap_values(
+                        model,
+                        prepared.X_train,
+                        local_row,
+                        prepared.feature_names,
+                    )
+                    lime_df = lime_explanation(
+                        model,
+                        prepared.X_train,
+                        local_row.iloc[0],
+                        prepared.feature_names,
+                        num_features=10,
+                    )
+
+                st.session_state.local_xai = {
+                    "model": selected_model,
+                    "row_position": row_position,
+                    "shap": local_shap,
+                    "lime": lime_df,
+                }
+
+            local_state = st.session_state.get("local_xai")
+            if (
+                local_state
+                and local_state.get("model") == selected_model
+                and local_state.get("row_position") == row_position
+            ):
+                import shap
+
+                local_shap = local_state["shap"]
+                lime_df = local_state["lime"]
+
+                st.subheader("SHAP local — pourquoi cette prédiction ?")
+                st.caption(
+                    "Le waterfall part du risque moyen du modèle. Chaque variable ajoute ou retire une contribution "
+                    "jusqu'à la prédiction de ce client."
+                )
+                plt.figure()
+                shap.plots.waterfall(
+                    local_shap[0],
+                    max_display=12,
+                    show=False,
+                )
+                st.pyplot(plt.gcf(), clear_figure=True)
+
+                shap_local_table = local_shap_contributions(
+                    local_shap[0],
+                    prepared.feature_names,
+                    original_features,
+                )
+                st.dataframe(
+                    shap_local_table[
+                        ["variable", "contribution", "sens"]
+                    ].head(8),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                summary = plain_language_summary(
+                    prepared.feature_names,
+                    local_shap[0],
+                    top_n=3,
+                    original_features=original_features,
+                )
+                st.info(summary)
+
+                st.subheader("LIME — même client")
+                st.caption(
+                    "LIME perturbe légèrement ce profil, demande au modèle de prédire ces profils voisins, "
+                    "puis ajuste un modèle linéaire simple autour du client."
+                )
+                lime_plot = lime_df.copy().head(10)
+                lime_plot["direction"] = lime_plot["contribution"].apply(
+                    lambda value: (
+                        "Augmente le risque"
+                        if value > 0
+                        else "Réduit le risque"
+                    )
+                )
+                lime_fig = px.bar(
+                    lime_plot.sort_values("contribution"),
+                    x="contribution",
+                    y="condition",
+                    orientation="h",
+                    color="direction",
+                    color_discrete_map={
+                        "Augmente le risque": "#B65C5C",
+                        "Réduit le risque": "#2A9D8F",
+                    },
+                    title="Explication locale LIME",
+                )
+                st.plotly_chart(lime_fig, use_container_width=True)
+
+                st.subheader("Comparaison SHAP / LIME")
+                shap_compare = shap_local_table[
+                    ["variable", "importance_absolue", "sens"]
+                ].rename(
+                    columns={
+                        "importance_absolue": "importance_SHAP",
+                        "sens": "sens_SHAP",
+                    }
+                )
+                lime_grouped = lime_contributions_by_feature(
+                    lime_df,
+                    prepared.feature_names,
+                    original_features,
+                )[
+                    ["variable", "importance_absolue", "sens"]
+                ].rename(
+                    columns={
+                        "importance_absolue": "importance_LIME",
+                        "sens": "sens_LIME",
+                    }
+                )
+
+                comparison = pd.merge(
+                    shap_compare,
+                    lime_grouped,
+                    on="variable",
+                    how="outer",
+                )
+                comparison["importance_SHAP"] = comparison[
+                    "importance_SHAP"
+                ].fillna(0.0)
+                comparison["importance_LIME"] = comparison[
+                    "importance_LIME"
+                ].fillna(0.0)
+                comparison["importance_max"] = comparison[
+                    ["importance_SHAP", "importance_LIME"]
+                ].max(axis=1)
+                comparison["cohérence du sens"] = comparison.apply(
+                    lambda row: (
+                        "Même sens"
+                        if pd.notna(row["sens_SHAP"])
+                        and pd.notna(row["sens_LIME"])
+                        and row["sens_SHAP"] == row["sens_LIME"]
+                        else (
+                            "Sens différent"
+                            if pd.notna(row["sens_SHAP"])
+                            and pd.notna(row["sens_LIME"])
+                            else "Présente dans une seule méthode"
+                        )
+                    ),
+                    axis=1,
+                )
+                comparison = comparison.sort_values(
+                    "importance_max",
+                    ascending=False,
+                ).head(8)
+
+                st.dataframe(
+                    comparison[
+                        [
+                            "variable",
+                            "sens_SHAP",
+                            "sens_LIME",
+                            "cohérence du sens",
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption(
+                    "On compare surtout les variables retenues et le sens de leur effet. "
+                    "Les valeurs numériques SHAP et LIME ne sont pas directement comparables, "
+                    "car les deux méthodes ne construisent pas l'explication de la même manière."
+                )
+
+        with tab_critical:
+            st.subheader("Ce qu'il faut retenir avant d'utiliser l'explication")
+
+            table = comparison_table(results)
+            best_model = table.iloc[0]
+
+            st.markdown("#### Cohérence et limites")
+            st.write(
+                "SHAP et LIME peuvent mettre en avant des variables différentes sans que l'une des deux méthodes soit forcément fausse. "
+                "SHAP répartit la prédiction du modèle, alors que LIME construit une approximation locale autour d'un client. "
+                "Une explication décrit le comportement du modèle ; elle ne prouve pas qu'une variable cause réellement le défaut."
+            )
+
+            sensitive = [
+                feature
+                for feature in [
+                    "age",
+                    "personal_status_sex",
+                    "foreign_worker",
+                ]
+                if feature in original_features
+            ]
+            st.markdown("#### Variables sensibles et équité")
+            if sensitive:
+                st.write(
+                    "Le dataset contient notamment les variables sensibles ou potentiellement sensibles suivantes : "
+                    + ", ".join(f"**{name}**" for name in sensitive)
+                    + ". Leur importance doit être examinée séparément : une bonne performance prédictive ne garantit pas une décision équitable."
+                )
+            else:
+                st.write(
+                    "Aucune des variables sensibles suivies dans cette application n'est présente dans la sélection actuelle."
+                )
+
+            st.markdown("#### Performance versus interprétabilité")
+            st.write(
+                f"Dans l'entraînement actuel, le meilleur AUC-ROC est obtenu par "
+                f"**{best_model['Modèle']}** ({best_model['AUC-ROC']:.4f}). "
+                "La régression logistique reste naturellement plus simple à lire grâce à ses coefficients, "
+                "alors que les modèles plus complexes nécessitent davantage d'outils d'explication."
+            )
+
+            st.markdown("#### Actions pour le décideur")
+            st.write(
+                "L'explication peut servir à vérifier qu'une décision repose sur des variables cohérentes, "
+                "à identifier les dossiers proches du seuil qui méritent une revue humaine et à repérer une dépendance excessive "
+                "à une variable sensible. Elle ne doit pas être interprétée comme une preuve causale ni comme une justification automatique d'un refus."
+            )
+
+            st.success(
+                "Conclusion XAI : on ne demande plus seulement « le modèle est-il performant ? », "
+                "mais aussi « sur quelles variables s'appuie-t-il, pourquoi ce client reçoit-il cette décision, "
+                "et cette logique est-elle acceptable ? »"
+            )
 
 
 elif module == "6 · FastAPI":
