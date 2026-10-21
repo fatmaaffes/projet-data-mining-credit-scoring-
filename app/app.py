@@ -441,6 +441,7 @@ st.success(
 module = st.sidebar.radio(
     "Navigation",
     [
+        "Guide · Variables & codes",
         "1 · Données & EDA",
         "1.1 · Conclusion EDA",
         "2 · Préparation",
@@ -457,7 +458,266 @@ module = st.sidebar.radio(
 st.sidebar.caption("Classe positive : default = 1 (mauvais payeur / défaut)")
 
 
-if module == "1 · Données & EDA":
+if module == "Guide · Variables & codes":
+    st.header("Guide des variables et des codes")
+    st.write(
+        "Cette page traduit les noms techniques du dataset German Credit en langage simple. "
+        "Les codes comme A14, A41 ou A34 sont des catégories du jeu de données d'origine : "
+        "ce ne sont pas des scores ni des niveaux de risque par eux-mêmes."
+    )
+
+    variable_guide = {
+        "checking_status": {
+            "type": "Catégorielle",
+            "explication": "Situation du compte courant du client au moment de la demande de crédit.",
+            "codes": {
+                "A11": "Solde du compte courant inférieur à 0 DM.",
+                "A12": "Solde compris entre 0 et 200 DM.",
+                "A13": "Solde supérieur ou égal à 200 DM, ou salaire domicilié depuis au moins un an.",
+                "A14": "Aucun compte courant.",
+            },
+        },
+        "duration": {
+            "type": "Numérique",
+            "explication": "Durée prévue du crédit, exprimée en mois.",
+            "codes": {},
+        },
+        "credit_history": {
+            "type": "Catégorielle",
+            "explication": "Historique du client concernant ses crédits et ses remboursements précédents.",
+            "codes": {
+                "A30": "Aucun crédit pris auparavant, ou tous les crédits ont été remboursés correctement.",
+                "A31": "Tous les crédits contractés auprès de cette banque ont été remboursés correctement.",
+                "A32": "Les crédits en cours ont été remboursés correctement jusqu'à présent.",
+                "A33": "Le client a déjà eu des retards de paiement.",
+                "A34": "Compte considéré comme critique, ou autres crédits existants ailleurs.",
+            },
+        },
+        "purpose": {
+            "type": "Catégorielle",
+            "explication": "Raison pour laquelle le client demande le crédit.",
+            "codes": {
+                "A40": "Achat d'une voiture neuve.",
+                "A41": "Achat d'une voiture d'occasion.",
+                "A42": "Mobilier ou équipement.",
+                "A43": "Radio ou télévision.",
+                "A44": "Électroménager.",
+                "A45": "Réparations.",
+                "A46": "Études / éducation.",
+                "A47": "Vacances — modalité historique signalée dans la documentation d'origine.",
+                "A48": "Reconversion ou formation professionnelle.",
+                "A49": "Activité professionnelle / business.",
+                "A410": "Autre motif.",
+            },
+        },
+        "credit_amount": {
+            "type": "Numérique",
+            "explication": "Montant du crédit demandé, exprimé dans la monnaie d'origine du dataset (DM).",
+            "codes": {},
+        },
+        "savings_status": {
+            "type": "Catégorielle",
+            "explication": "Niveau d'épargne ou d'avoirs d'épargne du client.",
+            "codes": {
+                "A61": "Épargne inférieure à 100 DM.",
+                "A62": "Épargne comprise entre 100 et 500 DM.",
+                "A63": "Épargne comprise entre 500 et 1 000 DM.",
+                "A64": "Épargne supérieure ou égale à 1 000 DM.",
+                "A65": "Épargne inconnue ou absence de compte d'épargne.",
+            },
+        },
+        "employment": {
+            "type": "Catégorielle",
+            "explication": "Ancienneté du client dans son emploi actuel.",
+            "codes": {
+                "A71": "Sans emploi.",
+                "A72": "Employé depuis moins d'un an.",
+                "A73": "Employé depuis 1 à moins de 4 ans.",
+                "A74": "Employé depuis 4 à moins de 7 ans.",
+                "A75": "Employé depuis au moins 7 ans.",
+            },
+        },
+        "installment_rate": {
+            "type": "Numérique / ordinale",
+            "explication": "Part du revenu disponible consacrée aux mensualités du crédit.",
+            "codes": {},
+        },
+        "personal_status_sex": {
+            "type": "Catégorielle",
+            "explication": "Variable historique combinant situation personnelle et sexe. Elle doit être considérée avec prudence car elle peut être sensible pour l'équité.",
+            "codes": {
+                "A91": "Homme divorcé ou séparé.",
+                "A92": "Femme divorcée, séparée ou mariée.",
+                "A93": "Homme célibataire.",
+                "A94": "Homme marié ou veuf.",
+                "A95": "Femme célibataire.",
+            },
+        },
+        "other_debtors": {
+            "type": "Catégorielle",
+            "explication": "Présence éventuelle d'un co-emprunteur ou d'un garant pour le crédit.",
+            "codes": {
+                "A101": "Aucun autre débiteur ni garant.",
+                "A102": "Présence d'un co-emprunteur.",
+                "A103": "Présence d'un garant.",
+            },
+        },
+        "residence_since": {
+            "type": "Numérique / ordinale",
+            "explication": "Ancienneté du client dans son logement actuel.",
+            "codes": {},
+        },
+        "property": {
+            "type": "Catégorielle",
+            "explication": "Type de patrimoine principal déclaré par le client.",
+            "codes": {
+                "A121": "Bien immobilier.",
+                "A122": "Épargne logement ou assurance-vie.",
+                "A123": "Voiture ou autre bien.",
+                "A124": "Patrimoine inconnu ou aucun bien déclaré.",
+            },
+        },
+        "age": {
+            "type": "Numérique",
+            "explication": "Âge du client, en années.",
+            "codes": {},
+        },
+        "other_installment_plans": {
+            "type": "Catégorielle",
+            "explication": "Existence d'autres plans de remboursement ou crédits à tempérament.",
+            "codes": {
+                "A141": "Autre plan auprès d'une banque.",
+                "A142": "Autre plan auprès d'un magasin / commerce.",
+                "A143": "Aucun autre plan de remboursement.",
+            },
+        },
+        "housing": {
+            "type": "Catégorielle",
+            "explication": "Situation de logement du client.",
+            "codes": {
+                "A151": "Locataire.",
+                "A152": "Propriétaire.",
+                "A153": "Logé gratuitement.",
+            },
+        },
+        "existing_credits": {
+            "type": "Numérique / ordinale",
+            "explication": "Nombre de crédits existants ou déjà enregistrés auprès de cette banque.",
+            "codes": {},
+        },
+        "job": {
+            "type": "Catégorielle",
+            "explication": "Catégorie professionnelle du client.",
+            "codes": {
+                "A171": "Sans emploi ou non qualifié non-résident.",
+                "A172": "Emploi non qualifié, résident.",
+                "A173": "Employé qualifié ou fonctionnaire.",
+                "A174": "Cadre, indépendant ou emploi hautement qualifié.",
+            },
+        },
+        "dependents": {
+            "type": "Numérique / ordinale",
+            "explication": "Nombre de personnes financièrement à charge du client.",
+            "codes": {},
+        },
+        "telephone": {
+            "type": "Catégorielle",
+            "explication": "Présence d'une ligne téléphonique enregistrée au nom du client.",
+            "codes": {
+                "A191": "Aucun téléphone enregistré.",
+                "A192": "Téléphone enregistré au nom du client.",
+            },
+        },
+        "foreign_worker": {
+            "type": "Catégorielle",
+            "explication": "Indique si le client est enregistré comme travailleur étranger dans ce dataset historique. Variable potentiellement sensible.",
+            "codes": {
+                "A201": "Oui.",
+                "A202": "Non.",
+            },
+        },
+        "default": {
+            "type": "Cible binaire",
+            "explication": "Variable que le modèle cherche à prédire.",
+            "codes": {
+                "0": "Bon payeur.",
+                "1": "Mauvais payeur / défaut.",
+            },
+        },
+    }
+
+    overview_rows = [
+        {
+            "Variable": name,
+            "Type": details["type"],
+            "Explication simple": details["explication"],
+        }
+        for name, details in variable_guide.items()
+    ]
+    st.dataframe(
+        pd.DataFrame(overview_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("Décoder une variable ou un code")
+    selected_guide_variable = st.selectbox(
+        "Choisir une variable",
+        list(variable_guide.keys()),
+        key="guide_variable",
+    )
+    details = variable_guide[selected_guide_variable]
+
+    st.markdown(f"### {selected_guide_variable}")
+    st.write(details["explication"])
+    st.caption(f"Type : {details['type']}")
+
+    if details["codes"]:
+        code_rows = [
+            {"Code": code, "Signification en français": meaning}
+            for code, meaning in details["codes"].items()
+        ]
+        st.dataframe(
+            pd.DataFrame(code_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.info(
+            "Un code décrit une catégorie. Il ne signifie pas automatiquement "
+            "« bon » ou « mauvais » : le sens du risque doit être étudié avec l'EDA, "
+            "les coefficients du modèle ou SHAP."
+        )
+    else:
+        st.info(
+            "Cette variable est numérique : elle ne possède pas de codes Axx à décoder."
+        )
+
+    with st.expander("Voir tous les codes catégoriels"):
+        for variable_name, variable_details in variable_guide.items():
+            if not variable_details["codes"]:
+                continue
+            st.markdown(f"#### {variable_name}")
+            st.write(variable_details["explication"])
+            all_codes = pd.DataFrame(
+                [
+                    {"Code": code, "Signification": meaning}
+                    for code, meaning in variable_details["codes"].items()
+                ]
+            )
+            st.dataframe(
+                all_codes,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    st.caption(
+        "Source des codes : documentation officielle UCI Statlog (German Credit Data). "
+        "Les formulations ci-dessus sont reformulées en français pour faciliter la lecture."
+    )
+
+
+elif module == "1 · Données & EDA":
+
     st.header("Module 1 — Données & EDA")
     module_intro(
         "Comprendre la qualité, la structure et les relations présentes dans les données avant toute modélisation.",
