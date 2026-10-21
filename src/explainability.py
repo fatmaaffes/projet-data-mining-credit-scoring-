@@ -125,6 +125,7 @@ def lime_explanation(
     explanation = explainer.explain_instance(
         np.asarray(row, dtype=float),
         model.predict_proba,
+        labels=(1,),
         num_features=min(num_features, len(feature_names)),
     )
 
