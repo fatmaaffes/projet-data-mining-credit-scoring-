@@ -134,27 +134,180 @@ def lime_explanation(
     )
 
 
+def original_feature_name(
+    transformed_name: str,
+    original_features: list[str],
+) -> str:
+    """Map a transformed/OHE feature back to its original variable."""
+
+    for feature in sorted(original_features, key=len, reverse=True):
+        if transformed_name == feature or transformed_name.startswith(feature + "_"):
+            return feature
+    return transformed_name
+
+
+def grouped_shap_importance(
+    shap_values,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    """Aggregate mean absolute SHAP values at original-variable level."""
+
+    values = np.asarray(shap_values.values)
+    if values.ndim == 1:
+        values = values.reshape(1, -1)
+
+    importance = np.abs(values).mean(axis=0)
+    table = pd.DataFrame(
+        {
+            "feature_transformee": feature_names,
+            "variable": [
+                original_feature_name(name, original_features)
+                for name in feature_names
+            ],
+            "importance": importance,
+        }
+    )
+
+    return (
+        table.groupby("variable", as_index=False)["importance"]
+        .sum()
+        .sort_values("importance", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def local_shap_contributions(
+    shap_row,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    """Aggregate local SHAP contributions at original-variable level."""
+
+    values = np.asarray(shap_row.values).reshape(-1)
+    table = pd.DataFrame(
+        {
+            "feature_transformee": feature_names,
+            "variable": [
+                original_feature_name(name, original_features)
+                for name in feature_names
+            ],
+            "contribution": values,
+        }
+    )
+
+    grouped = (
+        table.groupby("variable", as_index=False)["contribution"]
+        .sum()
+    )
+    grouped["importance_absolue"] = grouped["contribution"].abs()
+    grouped["sens"] = np.where(
+        grouped["contribution"] > 0,
+        "Augmente le risque",
+        np.where(
+            grouped["contribution"] < 0,
+            "Réduit le risque",
+            "Effet quasi nul",
+        ),
+    )
+
+    return (
+        grouped.sort_values("importance_absolue", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def lime_contributions_by_feature(
+    lime_df: pd.DataFrame,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    """Aggregate LIME conditions back to original variables."""
+
+    transformed_sorted = sorted(feature_names, key=len, reverse=True)
+
+    rows = []
+    for item in lime_df.itertuples(index=False):
+        condition = str(item.condition)
+        contribution = float(item.contribution)
+
+        transformed = next(
+            (name for name in transformed_sorted if name in condition),
+            condition,
+        )
+        variable = original_feature_name(transformed, original_features)
+        rows.append(
+            {
+                "variable": variable,
+                "contribution": contribution,
+            }
+        )
+
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return pd.DataFrame(
+            columns=["variable", "contribution", "importance_absolue", "sens"]
+        )
+
+    grouped = (
+        table.groupby("variable", as_index=False)["contribution"]
+        .sum()
+    )
+    grouped["importance_absolue"] = grouped["contribution"].abs()
+    grouped["sens"] = np.where(
+        grouped["contribution"] > 0,
+        "Augmente le risque",
+        np.where(
+            grouped["contribution"] < 0,
+            "Réduit le risque",
+            "Effet quasi nul",
+        ),
+    )
+
+    return (
+        grouped.sort_values("importance_absolue", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
 def plain_language_summary(
     feature_names: list[str],
     shap_row,
     *,
     top_n: int = 3,
+    original_features: list[str] | None = None,
 ) -> str:
     """Create a short deterministic explanation from local SHAP contributions."""
 
-    values = np.asarray(shap_row.values).reshape(-1)
-    order = np.argsort(np.abs(values))[::-1][:top_n]
+    if original_features:
+        table = local_shap_contributions(
+            shap_row,
+            feature_names,
+            original_features,
+        ).head(top_n)
 
-    positive = []
-    negative = []
+        positive = table.loc[
+            table["contribution"] > 0,
+            "variable",
+        ].tolist()
+        negative = table.loc[
+            table["contribution"] < 0,
+            "variable",
+        ].tolist()
+    else:
+        values = np.asarray(shap_row.values).reshape(-1)
+        order = np.argsort(np.abs(values))[::-1][:top_n]
 
-    for index in order:
-        feature = feature_names[index]
-        value = float(values[index])
-        if value > 0:
-            positive.append(feature)
-        elif value < 0:
-            negative.append(feature)
+        positive = []
+        negative = []
+
+        for index in order:
+            feature = feature_names[index]
+            value = float(values[index])
+            if value > 0:
+                positive.append(feature)
+            elif value < 0:
+                negative.append(feature)
 
     parts = []
 
