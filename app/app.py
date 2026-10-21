@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -40,13 +41,9 @@ from src.evaluation import (
 )
 from src.explainability import (
     compute_shap_values,
-    grouped_shap_importance,
-    lime_contributions_by_feature,
     lime_explanation,
-    local_shap_contributions,
     native_importance,
     permutation_importance_df,
-    plain_language_summary,
 )
 from src.preprocessing import prepare_data
 from src.training import train_models
@@ -246,6 +243,156 @@ def metric_guide() -> None:
         columns=["Métrique", "Comment la lire ?", "Dépend du seuil choisi ?"],
     )
     st.dataframe(guide, use_container_width=True, hide_index=True)
+
+
+def xai_original_feature_name(
+    transformed_name: str,
+    original_features: list[str],
+) -> str:
+    """Map a transformed/OHE feature back to its original variable."""
+
+    for feature in sorted(original_features, key=len, reverse=True):
+        if transformed_name == feature or transformed_name.startswith(feature + "_"):
+            return feature
+    return transformed_name
+
+
+def xai_grouped_shap_importance(
+    shap_values,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    values = np.asarray(shap_values.values)
+    if values.ndim == 1:
+        values = values.reshape(1, -1)
+
+    table = pd.DataFrame(
+        {
+            "variable": [
+                xai_original_feature_name(name, original_features)
+                for name in feature_names
+            ],
+            "importance": np.abs(values).mean(axis=0),
+        }
+    )
+    return (
+        table.groupby("variable", as_index=False)["importance"]
+        .sum()
+        .sort_values("importance", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def xai_local_shap_contributions(
+    shap_row,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    values = np.asarray(shap_row.values).reshape(-1)
+    table = pd.DataFrame(
+        {
+            "variable": [
+                xai_original_feature_name(name, original_features)
+                for name in feature_names
+            ],
+            "contribution": values,
+        }
+    )
+    grouped = table.groupby("variable", as_index=False)["contribution"].sum()
+    grouped["importance_absolue"] = grouped["contribution"].abs()
+    grouped["sens"] = np.where(
+        grouped["contribution"] > 0,
+        "Augmente le risque",
+        np.where(grouped["contribution"] < 0, "Réduit le risque", "Effet quasi nul"),
+    )
+    return grouped.sort_values("importance_absolue", ascending=False).reset_index(drop=True)
+
+
+def xai_lime_contributions_by_feature(
+    lime_df: pd.DataFrame,
+    feature_names: list[str],
+    original_features: list[str],
+) -> pd.DataFrame:
+    transformed_sorted = sorted(feature_names, key=len, reverse=True)
+    rows = []
+
+    for item in lime_df.itertuples(index=False):
+        condition = str(item.condition)
+        contribution = float(item.contribution)
+        transformed = next(
+            (name for name in transformed_sorted if name in condition),
+            condition,
+        )
+        rows.append(
+            {
+                "variable": xai_original_feature_name(
+                    transformed,
+                    original_features,
+                ),
+                "contribution": contribution,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(
+            columns=["variable", "contribution", "importance_absolue", "sens"]
+        )
+
+    grouped = (
+        pd.DataFrame(rows)
+        .groupby("variable", as_index=False)["contribution"]
+        .sum()
+    )
+    grouped["importance_absolue"] = grouped["contribution"].abs()
+    grouped["sens"] = np.where(
+        grouped["contribution"] > 0,
+        "Augmente le risque",
+        np.where(grouped["contribution"] < 0, "Réduit le risque", "Effet quasi nul"),
+    )
+    return grouped.sort_values("importance_absolue", ascending=False).reset_index(drop=True)
+
+
+def xai_plain_language_summary(
+    feature_names: list[str],
+    shap_row,
+    original_features: list[str],
+    *,
+    top_n: int = 3,
+) -> str:
+    table = xai_xai_local_shap_contributions(
+        shap_row,
+        feature_names,
+        original_features,
+    ).head(top_n)
+
+    positive = table.loc[
+        table["contribution"] > 0,
+        "variable",
+    ].tolist()
+    negative = table.loc[
+        table["contribution"] < 0,
+        "variable",
+    ].tolist()
+
+    parts = []
+    if positive:
+        parts.append(
+            "Le risque est augmenté principalement par : "
+            + ", ".join(positive)
+            + "."
+        )
+    if negative:
+        parts.append(
+            "Le risque est réduit principalement par : "
+            + ", ".join(negative)
+            + "."
+        )
+
+    return (
+        " ".join(parts)
+        if parts
+        else "Aucune contribution dominante n'a été identifiée pour cet individu."
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -1937,7 +2084,7 @@ elif module == "5 · Explainable AI":
 
                 shap_values = st.session_state.global_shap
 
-                grouped = grouped_shap_importance(
+                grouped = xai_grouped_shap_importance(
                     shap_values,
                     prepared.feature_names,
                     original_features,
@@ -2126,7 +2273,7 @@ elif module == "5 · Explainable AI":
                 )
                 st.pyplot(plt.gcf(), clear_figure=True)
 
-                shap_local_table = local_shap_contributions(
+                shap_local_table = xai_local_shap_contributions(
                     local_shap[0],
                     prepared.feature_names,
                     original_features,
@@ -2139,11 +2286,11 @@ elif module == "5 · Explainable AI":
                     hide_index=True,
                 )
 
-                summary = plain_language_summary(
+                summary = xai_plain_language_summary(
                     prepared.feature_names,
                     local_shap[0],
+                    original_features,
                     top_n=3,
-                    original_features=original_features,
                 )
                 st.info(summary)
 
@@ -2183,7 +2330,7 @@ elif module == "5 · Explainable AI":
                         "sens": "sens_SHAP",
                     }
                 )
-                lime_grouped = lime_contributions_by_feature(
+                lime_grouped = xai_lime_contributions_by_feature(
                     lime_df,
                     prepared.feature_names,
                     original_features,
