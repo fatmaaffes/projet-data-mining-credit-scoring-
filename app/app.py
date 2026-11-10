@@ -359,7 +359,7 @@ def xai_plain_language_summary(
     *,
     top_n: int = 3,
 ) -> str:
-    table = xai_xai_local_shap_contributions(
+    table = xai_local_shap_contributions(
         shap_row,
         feature_names,
         original_features,
