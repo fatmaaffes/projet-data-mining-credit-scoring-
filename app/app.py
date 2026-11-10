@@ -2476,7 +2476,9 @@ elif module == "5 · Explainable AI":
             with st.expander("Voir le profil original du client"):
                 profile = local_raw.T.copy()
                 profile.columns = ["Valeur"]
-                st.dataframe(profile, use_container_width=True)
+                # A profile mixes numbers and text: Arrow requires one consistent type.
+                profile["Valeur"] = profile["Valeur"].astype(str)
+                st.dataframe(profile, width="stretch")
 
             st.write(
                 "On explique maintenant exactement la même prédiction avec SHAP puis avec LIME."
