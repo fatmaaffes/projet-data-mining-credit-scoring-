@@ -2236,6 +2236,10 @@ elif module == "5 · Explainable AI":
 
         with tab_global:
             st.subheader("1 · Importance propre au modèle")
+            st.info(
+                "💡 **Idée principale :** Identifier les variables auxquelles le modèle "
+                "accorde le plus de poids à partir des paramètres appris pendant l'entraînement."
+            )
             native = native_importance(
                 model,
                 prepared.feature_names,
@@ -2255,12 +2259,19 @@ elif module == "5 · Explainable AI":
                 )
                 st.plotly_chart(native_fig, use_container_width=True)
                 st.caption(
-                    "Pour la régression logistique, on affiche ici la valeur absolue des coefficients. "
-                    "Pour les modèles à arbres, il s'agit de leur importance interne. "
-                    "L'importance indique combien une variable compte, pas dans quel sens elle agit."
+                    "**Importance native : ce calcul ne repose pas sur SHAP.** "
+                    "Il utilise des informations déjà apprises par le modèle pendant l'entraînement : "
+                    "la valeur absolue des coefficients (`coef_`) pour la régression logistique, "
+                    "ou l'importance interne (`feature_importances_`) pour les modèles à arbres. "
+                    "On repère les variables qui comptent le plus, mais cette importance "
+                    "n'indique pas à elle seule si elles augmentent ou diminuent le risque."
                 )
 
             st.subheader("2 · Importance par permutation")
+            st.info(
+                "💡 **Idée principale :** Savoir si le modèle a vraiment besoin "
+                "d'une variable pour faire de bonnes prédictions."
+            )
             st.write(
                 "On mélange une variable et on mesure la baisse d'AUC-ROC. "
                 "Si la performance chute fortement, le modèle dépend beaucoup de cette variable."
@@ -2306,6 +2317,10 @@ elif module == "5 · Explainable AI":
                 )
 
             st.subheader("3 · SHAP global")
+            st.info(
+                "💡 **Idée principale :** Comprendre quelles variables influencent le plus "
+                "les prédictions sur plusieurs clients."
+            )
             st.write(
                 "SHAP attribue à chaque variable une contribution à la prédiction. "
                 "Pour l'importance globale, on regarde en moyenne la taille absolue de ces contributions "
@@ -2534,6 +2549,16 @@ elif module == "5 · Explainable AI":
                     show=False,
                 )
                 st.pyplot(plt.gcf(), clear_figure=True)
+                st.markdown("**💡 Comment lire ce graphique ?**")
+                st.markdown(
+                    "- **E[f(X)]** : probabilité de défaut de référence utilisée par SHAP, "
+                    "avant d'ajouter les contributions du client.\n"
+                    "- **f(x)** : probabilité de défaut prédite pour le client sélectionné.\n"
+                    "- 🔴 **Barres rouges** : contributions qui augmentent le risque prédit.\n"
+                    "- 🔵 **Barres bleues** : contributions qui diminuent le risque prédit.\n\n"
+                    "La somme de toutes les contributions SHAP fait passer E[f(X)] à f(x). "
+                    "Ces contributions décrivent le modèle, sans prouver de causalité."
+                )
 
                 shap_local_table = xai_local_shap_contributions(
                     local_shap[0],
@@ -2547,6 +2572,28 @@ elif module == "5 · Explainable AI":
                     use_container_width=True,
                     hide_index=True,
                 )
+                st.markdown("**💡 Comment interpréter les contributions regroupées ?**")
+                st.caption(
+                    "Le graphique Waterfall détaille les contributions des colonnes après "
+                    "One-Hot Encoding, tandis que ce tableau additionne celles des catégories "
+                    "d'une même variable d'origine. Par exemple, `savings_status` "
+                    "regroupe les modalités A61 à A65 : leurs contributions sont additionnées "
+                    "pour obtenir le résultat total affiché pour ce client."
+                )
+                if "savings_status" in shap_local_table["variable"].values:
+                    savings_effect = float(
+                        shap_local_table.loc[
+                            shap_local_table["variable"] == "savings_status",
+                            "contribution",
+                        ].iloc[0]
+                    )
+                    st.caption(
+                        f"Dans ce profil, `savings_status` contribue de "
+                        f"{savings_effect:+.4f} à la probabilité prédite "
+                        "(soit "
+                        f"{savings_effect * 100:+.2f} points de pourcentage). "
+                        "Une valeur négative réduit le risque estimé ; une valeur positive l'augmente."
+                    )
 
                 summary = xai_plain_language_summary(
                     prepared.feature_names,
@@ -2583,79 +2630,11 @@ elif module == "5 · Explainable AI":
                 )
                 st.plotly_chart(lime_fig, use_container_width=True)
 
-                st.subheader("Comparaison SHAP / LIME")
-                shap_compare = shap_local_table[
-                    ["variable", "importance_absolue", "sens"]
-                ].rename(
-                    columns={
-                        "importance_absolue": "importance_SHAP",
-                        "sens": "sens_SHAP",
-                    }
-                )
-                lime_grouped = xai_lime_contributions_by_feature(
-                    lime_df,
-                    prepared.feature_names,
-                    original_features,
-                )[
-                    ["variable", "importance_absolue", "sens"]
-                ].rename(
-                    columns={
-                        "importance_absolue": "importance_LIME",
-                        "sens": "sens_LIME",
-                    }
-                )
-
-                comparison = pd.merge(
-                    shap_compare,
-                    lime_grouped,
-                    on="variable",
-                    how="outer",
-                )
-                comparison["importance_SHAP"] = comparison[
-                    "importance_SHAP"
-                ].fillna(0.0)
-                comparison["importance_LIME"] = comparison[
-                    "importance_LIME"
-                ].fillna(0.0)
-                comparison["importance_max"] = comparison[
-                    ["importance_SHAP", "importance_LIME"]
-                ].max(axis=1)
-                comparison["cohérence du sens"] = comparison.apply(
-                    lambda row: (
-                        "Même sens"
-                        if pd.notna(row["sens_SHAP"])
-                        and pd.notna(row["sens_LIME"])
-                        and row["sens_SHAP"] == row["sens_LIME"]
-                        else (
-                            "Sens différent"
-                            if pd.notna(row["sens_SHAP"])
-                            and pd.notna(row["sens_LIME"])
-                            else "Présente dans une seule méthode"
-                        )
-                    ),
-                    axis=1,
-                )
-                comparison = comparison.sort_values(
-                    "importance_max",
-                    ascending=False,
-                ).head(8)
-
-                st.dataframe(
-                    comparison[
-                        [
-                            "variable",
-                            "sens_SHAP",
-                            "sens_LIME",
-                            "cohérence du sens",
-                        ]
-                    ],
-                    use_container_width=True,
-                    hide_index=True,
-                )
                 st.caption(
-                    "On compare surtout les variables retenues et le sens de leur effet. "
-                    "Les valeurs numériques SHAP et LIME ne sont pas directement comparables, "
-                    "car les deux méthodes ne construisent pas l'explication de la même manière."
+                    "SHAP répartit la prédiction entre les variables ; LIME construit une "
+                    "approximation locale du modèle autour de ce client. Les facteurs mis en "
+                    "avant et leur sens peuvent parfois différer, car les méthodes sont distinctes. "
+                    "Leurs contributions numériques ne sont pas directement comparables."
                 )
 
         with tab_critical:
