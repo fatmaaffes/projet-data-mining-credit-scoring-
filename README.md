@@ -102,3 +102,37 @@ FastAPI expose la prédiction et l'interprétation locale.
 
 L'application Streamlit peut être déployée sur Streamlit Community Cloud.
 L'API FastAPI doit être déployée séparément puis son URL peut être saisie dans le Module 6 de l'application.
+
+## Recherche reproductible (audit académique)
+
+La commande ci-dessous exécute une validation croisée stratifiée répétée (5 folds × 10 répétitions),
+calcule les IC bootstrap à 95 % pour l'AUC de test, sélectionne un seuil minimisant
+le coût 5×FN + 1×FP sur les seules prédictions hors pli du train et produit des
+CSV/figures vectorielles. Elle réalise aussi un audit exploratoire des erreurs
+par `personal_status_sex` (combinaison sexe/statut marital) et par tranche d'âge,
+avec une étude d'ablation. Les métriques du test ne servent **jamais** à choisir le seuil.
+
+```bash
+python -m pip install -r requirements.txt pytest
+python -m pytest -q tests/test_evaluation_robust.py
+python run_experiments.py --output results/research
+# optionnel et plus coûteux : cohérence SHAP-LIME sur 50 observations
+python run_experiments.py --output results/research --with-explanations
+```
+
+Si l'accès réseau au dataset UCI est impossible, télécharger préalablement le fichier
+original `german.data`, puis utiliser `--data-path /chemin/vers/german.data`.
+La matrice de coût 5:1 provient de la documentation UCI ; le seuil théorique 1/6
+suppose des probabilités bien calibrées (ce qui n'est pas automatiquement garanti).
+
+La CV répétée est calculée sur le TRAIN pour préserver l'indépendance de l'évaluation finale.
+`Average Precision` (AP) et l'aire trapézoïdale sous la courbe précision–rappel
+(`PR-AUC`) sont deux statistiques différentes et doivent être nommées séparément.
+
+L'audit par groupe est **descriptif**, pas une certification de non-discrimination.
+Le jeu public est ancien, certaines modalités sont de petits effectifs et
+`personal_status_sex` mélange sexe et statut matrimonial. L'usage en décision bancaire
+réelle exige une vérification juridique et une validation externe.
+
+Les analyses sont également exécutables via **GitHub Actions** ; les CSV et PNG/SVG
+sont disponibles dans l'artefact `german-credit-experiments` du workflow.
