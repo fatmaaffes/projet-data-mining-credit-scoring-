@@ -128,7 +128,7 @@ def explain_agreement(model,prepared,model_name,folder,seed=42,n=50):
     for index in sampled:
         row=Xte.iloc[index].to_numpy(dtype=float)
         s=np.asarray(shap_explainer(row.reshape(1,-1),max_evals=2*len(row)+1).values).reshape(-1)
-        explanation=lime.explain_instance(row,pred,num_features=len(row),num_samples=1000)
+        explanation=lime.explain_instance(row,model.predict_proba,num_features=len(row),num_samples=1000)
         local=np.zeros(len(row),dtype=float)
         for i,value in explanation.as_map()[1]:local[i]=value
         rank_corr=spearmanr(s,local).statistic
