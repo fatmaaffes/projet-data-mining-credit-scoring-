@@ -46,6 +46,7 @@ from src.explainability import (
     permutation_importance_df,
 )
 from src.preprocessing import prepare_data
+from src.experiment_config import ExperimentConfig, MODEL_NAMES, reference_preparation_config
 from src.training import train_models
 
 
@@ -422,13 +423,7 @@ df = data.df
 numeric_features, categorical_features = split_feature_types(X)
 
 if "prep_config" not in st.session_state:
-    st.session_state.prep_config = {
-        "selected_features": X.columns.tolist(),
-        "test_size": 0.20,
-        "scale_numeric": True,
-        "numeric_imputation": "median",
-        "categorical_imputation": "most_frequent",
-    }
+    st.session_state.prep_config = reference_preparation_config(X.columns)
 
 st.title("Credit Scoring explicable")
 st.caption("German Credit — UCI Statlog · Application interactive complète")
@@ -1386,11 +1381,25 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
         default=model_names,
     )
 
-    tune = st.checkbox(
-        "Optimiser automatiquement les hyperparamètres",
+    fixed_protocol = st.checkbox(
+        "Utiliser le protocole académique reproductible (identique au script)",
         value=True,
-        help="RandomizedSearchCV teste plusieurs configurations par validation croisée sur le train et retient la meilleure selon l'AUC-ROC.",
+        help="20 variables, split stratifié 80/20 avec seed 42, StandardScaler, imputations par défaut, hyperparamètres fixes du registre ; aucune optimisation automatique.",
+        key="model_reference_protocol",
     )
+    if fixed_protocol:
+        st.info(
+            "Protocole de référence : 20 variables, train/test 80/20 stratifié, seed 42, "
+            "standardisation des numériques, hyperparamètres par défaut et aucun tuning. "
+            "Ces réglages sont partagés avec run_experiments.py. Les expériences exploratoires restent possibles en désactivant cette option."
+        )
+        tune = False
+    else:
+        tune = st.checkbox(
+            "Optimiser automatiquement les hyperparamètres",
+            value=False,
+            help="Mode exploratoire : RandomizedSearchCV teste plusieurs configurations sur le train. Les métriques ne sont plus directement comparables au protocole fixe.",
+        )
 
     if tune:
         n_iter = st.slider(
@@ -1608,17 +1617,33 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
         st.warning("Sélectionnez au moins un modèle.")
     elif st.button("Entraîner les modèles", type="primary"):
         with st.spinner("Entraînement et comparaison des modèles..."):
+            training_data = prepared
+            training_params = model_params
+            if fixed_protocol:
+                # Use the same features/preprocessor/default estimators as the
+                # reproducible batch runner regardless of exploratory UI choices.
+                ref_cfg = reference_preparation_config(X.columns)
+                training_data = get_prepared(
+                    tuple(ref_cfg["selected_features"]),
+                    ref_cfg["test_size"], ref_cfg["scale_numeric"],
+                    ref_cfg["numeric_imputation"], ref_cfg["categorical_imputation"],
+                )
+                training_params = {name: {} for name in selected_models}
             results = train_models(
                 selected_models,
-                prepared,
-                model_params=model_params,
+                training_data,
+                model_params=training_params,
                 tune=tune,
                 cv_folds=cv_folds,
                 n_iter=n_iter,
             )
 
         st.session_state.model_results = results
-        st.session_state.prepared_data = prepared
+        st.session_state.prepared_data = training_data
+        st.session_state.model_protocol = (
+            "Fixed baseline — matches run_experiments.py"
+            if fixed_protocol else "Exploratory — user-configured/tuned"
+        )
         st.session_state.model_cv_folds = cv_folds
         st.session_state.threshold_recommendations = {}
         st.session_state.threshold_oof_probs = {}
@@ -1635,6 +1660,7 @@ Chaque algorithme est présenté selon la même logique : **principe → apprent
 
     if "model_results" in st.session_state:
         results = st.session_state.model_results
+        st.caption("Training protocol: " + st.session_state.get("model_protocol", "Previous session / not recorded; retrain for strict comparison"))
         table = comparison_table(results)
         st.subheader("Comparaison des modèles — jeu de test")
         st.caption(

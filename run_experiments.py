@@ -29,7 +29,7 @@ from sklearn.calibration import calibration_curve
 from src.data import COLUMN_NAMES,load_german_credit
 from src.preprocessing import prepare_data
 from src.models import build_model
-from src.experiment_config import ExperimentConfig, MODEL_NAMES
+from src.experiment_config import ExperimentConfig, MODEL_NAMES, MODEL_NAMES_EN, reference_preparation_config
 from src.evaluation_robust import (bootstrap_auc,cost_breakdown,choose_cost_threshold,
     make_pipeline,repeated_cv,training_oof_probabilities,subgroup_audit,brier_score)
 
@@ -56,7 +56,7 @@ def build_roc_plot(y_test,probabilities,directory):
     fig,ax=plt.subplots(figsize=(7.5,5.4))
     for name,p in probabilities.items():
         fpr,tpr,_=roc_curve(y_test,p)
-        ax.plot(fpr,tpr,label=f'{name} (AUC {roc_auc_score(y_test,p):.3f})')
+        ax.plot(fpr,tpr,label=f'{MODEL_NAMES_EN[name]} (AUC {roc_auc_score(y_test,p):.3f})')
     ax.plot([0,1],[0,1],'--',color='gray',label='Random ranking')
     ax.set(xlabel='False positive rate',ylabel='True positive rate',title='ROC curves — held-out test')
     ax.legend(fontsize=8);fig.tight_layout();save_plot(fig,directory,'roc_curves')
@@ -66,19 +66,19 @@ def build_pr_plot(y_test,probabilities,directory):
     fig,ax=plt.subplots(figsize=(7.5,5.4))
     for name,p in probabilities.items():
         precision,recall,_=precision_recall_curve(y_test,p)
-        ax.step(recall,precision,where='post',label=f'{name} (AP {average_precision_score(y_test,p):.3f})')
+        ax.step(recall,precision,where='post',label=f'{MODEL_NAMES_EN[name]} (AP {average_precision_score(y_test,p):.3f})')
     ax.axhline(float(np.asarray(y_test).mean()),linestyle='--',color='gray',label='Positive prevalence')
     ax.set(xlabel='Recall',ylabel='Precision',title='Precision–recall curves — held-out test',xlim=(0,1),ylim=(0,1.03))
     ax.legend(fontsize=8);fig.tight_layout();save_plot(fig,directory,'precision_recall_curves')
 
 
 def build_cost_plot(cost_frame,directory):
-    fig,ax=plt.subplots(figsize=(9,4.7))
-    names=cost_frame.model.tolist(); x=np.arange(len(names));w=.36
+    fig,ax=plt.subplots(figsize=(10.0,4.7))
+    names=[MODEL_NAMES_EN[name] for name in cost_frame.model]; x=np.arange(len(names));w=.36
     ax.bar(x-w/2,cost_frame.cost_050,width=w,label='Threshold 0.50')
     ax.bar(x+w/2,cost_frame.cost_optimised,width=w,label='Train-OOF cost threshold')
-    ax.set_xticks(x,names,rotation=20,ha='right');ax.set_ylabel('Test cost (FN×5 + FP×1)')
-    ax.set_title('Out-of-sample classification cost');ax.legend();fig.tight_layout()
+    ax.set_xticks(x,names,rotation=14,ha='right');ax.set_ylabel('Test cost (5 FN + FP)')
+    ax.set_title('Out-of-sample classification cost');ax.legend(loc='upper left',bbox_to_anchor=(1.01,1),frameon=False);fig.tight_layout()
     save_plot(fig,directory,'test_cost_comparison')
 
 
@@ -103,7 +103,7 @@ def build_calibration(y,p,directory):
     ax.legend();fig.tight_layout();save_plot(fig,directory,'calibration_logistic')
 
 
-def explain_agreement(model,prepared,model_name,folder,seed=42,n=50):
+def explain_agreement(model,prepared,model_name,folder,seed=42,n=50,export_figures=False):
     """Compare model-agnostic permutation SHAP vs LIME on aligned OHE columns.
 
     The LIME discretisation and its local linear surrogate mean contribution
@@ -125,10 +125,20 @@ def explain_agreement(model,prepared,model_name,folder,seed=42,n=50):
         class_names=['Good','Default'],mode='classification',discretize_continuous=True,
         random_state=seed)
     rows=[]
+    shap_vectors=[]
+    shap_baselines=[]
+    selected_lime=None
+    selected_features=None
     for index in sampled:
         row=Xte.iloc[index].to_numpy(dtype=float)
-        s=np.asarray(shap_explainer(row.reshape(1,-1),max_evals=2*len(row)+1).values).reshape(-1)
+        shap_values=shap_explainer(row.reshape(1,-1),max_evals=2*len(row)+1)
+        s=np.asarray(shap_values.values).reshape(-1)
+        shap_vectors.append(s)
+        shap_baselines.append(float(np.asarray(shap_values.base_values).reshape(-1)[0]))
         explanation=lime.explain_instance(row,model.predict_proba,num_features=len(row),num_samples=1000)
+        if selected_lime is None:
+            selected_lime=explanation
+            selected_features=row.copy()
         local=np.zeros(len(row),dtype=float)
         for i,value in explanation.as_map()[1]:local[i]=value
         rank_corr=spearmanr(s,local).statistic
@@ -138,6 +148,59 @@ def explain_agreement(model,prepared,model_name,folder,seed=42,n=50):
                      'top5_overlap':len(top_s & top_l)/5,
                      'default_probability':float(pred(row.reshape(1,-1))[0])})
     result=pd.DataFrame(rows);result.to_csv(folder/'shap_lime_client_agreement.csv',index=False)
+    if export_figures and rows:
+        # The global beeswarm, local waterfall and LIME bars all refer to the
+        # same fixed Logistic Regression model and same first selected case.
+        from src.experiment_config import MODEL_NAMES_EN
+        english_name=MODEL_NAMES_EN.get(model_name,model_name)
+        explanations=shap.Explanation(
+            values=np.vstack(shap_vectors),
+            base_values=np.array(shap_baselines),
+            data=Xte.iloc[sampled].to_numpy(dtype=float),
+            feature_names=feature_names,
+        )
+        try:
+            shap.plots.beeswarm(explanations,max_display=14,show=False)
+            plt.title(f'SHAP beeswarm — {english_name} ({len(result)} test cases)',fontsize=12,pad=14)
+            plt.gcf().set_size_inches(10.2,7.2)
+            plt.tight_layout()
+            save_plot(plt.gcf(),folder,'shap_beeswarm_logistic')
+        finally:
+            plt.close('all')
+        try:
+            shap.plots.waterfall(explanations[0],max_display=12,show=False)
+            plt.title(f'SHAP waterfall — {english_name}, test row {rows[0]["test_row"]}',fontsize=12,pad=14)
+            plt.gcf().set_size_inches(10.5,7.0)
+            plt.tight_layout()
+            save_plot(plt.gcf(),folder,'shap_waterfall_logistic')
+        finally:
+            plt.close('all')
+        # Use the actual LIME explanation weights and conditions (not inferred
+        # from the SHAP attributions, and not screen-captured).
+        conditions=selected_lime.as_list(label=1)
+        conditions=sorted(conditions,key=lambda x:abs(x[1]),reverse=True)[:12][::-1]
+        labels,weights=zip(*conditions)
+        fig,ax=plt.subplots(figsize=(10.5,5.5))
+        xs=np.arange(len(labels))
+        ax.barh(xs,weights,color=['#ba5a59' if v>0 else '#268978' for v in weights])
+        ax.set_yticks(xs,labels,fontsize=8)
+        ax.axvline(0,color='black',linewidth=.8)
+        ax.set_xlabel('Local surrogate weight (positive = higher default risk)')
+        ax.set_title(f'LIME local explanation — {english_name}, test row {rows[0]["test_row"]}')
+        fig.tight_layout()
+        save_plot(fig,folder,'lime_local_logistic')
+        (folder/'explained_borrower.json').write_text(json.dumps({
+            'model':model_name,
+            'model_en':english_name,
+            'original_test_row':rows[0]['test_row'],
+            'probability_default':rows[0]['default_probability'],
+            'baseline_probability':shap_baselines[0],
+            'shap_contributions_sum':float(np.sum(shap_vectors[0])),
+            'lime_class':'Default (1)',
+            'seed':seed,
+            'n_background_cases':len(bg),
+            'n_explained_cases':len(rows),
+        },indent=2,ensure_ascii=False),encoding='utf-8')
     return {'model':model_name,'n':len(result),'spearman_mean':float(result.spearman.mean()),
             'spearman_std':float(result.spearman.std(ddof=1)),
             'top5_overlap_mean':float(result.top5_overlap.mean()),
@@ -150,8 +213,11 @@ def run(args):
     output=Path(args.output);output.mkdir(parents=True,exist_ok=True)
     plots=output/'figures';plots.mkdir(exist_ok=True)
     X,y=load_data(args.data_path)
+    preparation_defaults=reference_preparation_config(X.columns)
     prepared=prepare_data(X,y,test_size=config.test_size,random_state=config.seed,
-                          scale_numeric=True)
+                          scale_numeric=preparation_defaults['scale_numeric'],
+                          numeric_imputation=preparation_defaults['numeric_imputation'],
+                          categorical_imputation=preparation_defaults['categorical_imputation'])
     config_dump={'protocol':config.as_dict(),'models':{},
       'source':'UCI Statlog German Credit original categorical dataset',
       'note':'Cost=5 FN + 1 FP, theoretical threshold 1/6 ONLY if probability is calibrated',

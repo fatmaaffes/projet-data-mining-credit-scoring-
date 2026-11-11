@@ -25,7 +25,7 @@ def main():
     prepared=prepare_data(data.X,data.y,random_state=42,test_size=0.20)
     model=build_model(args.model)
     model.fit(prepared.X_train,prepared.y_train)
-    result=explain_agreement(model,prepared,args.model,out,n=args.n,seed=42)
+    result=explain_agreement(model,prepared,args.model,out,n=args.n,seed=42,export_figures=True)
     (out/'summary.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf8')
     print(json.dumps(result,indent=2,ensure_ascii=False),flush=True)
 

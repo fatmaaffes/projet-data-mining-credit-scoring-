@@ -5,6 +5,8 @@ on:
     paths:
       - 'run_explanations.py'
       - 'src/explainability.py'
+      - 'run_experiments.py'
+      - 'src/experiment_config.py'
       - '.github/workflows/explainability-audit.yml'
   workflow_dispatch:
 jobs:
