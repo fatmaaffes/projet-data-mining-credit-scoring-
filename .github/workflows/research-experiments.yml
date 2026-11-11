@@ -1,0 +1,42 @@
+name: Reproducible credit-scoring experiments
+on:
+  workflow_dispatch:
+    inputs:
+      explain:
+        description: 'Also run 50-case SHAP/LIME consistency (can take longer)'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'run_experiments.py'
+      - 'src/evaluation_robust.py'
+      - 'src/experiment_config.py'
+      - 'src/preprocessing.py'
+      - 'src/models/**'
+      - '.github/workflows/research-experiments.yml'
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: python -m pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests/test_evaluation_robust.py
+      - name: Run stratified repeated CV, bootstrap and cost/fairness analyses
+        run: python run_experiments.py --output results/research
+      - name: Optional 50-case SHAP-LIME consistency
+        if: inputs.explain == true
+        run: python run_experiments.py --output results/research --with-explanations
+      - uses: actions/upload-artifact@v4
+        with:
+          name: german-credit-experiments
+          path: results/research/
+          retention-days: 30
