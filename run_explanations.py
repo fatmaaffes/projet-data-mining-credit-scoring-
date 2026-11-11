@@ -1,6 +1,7 @@
 """50-borrower SHAP/LIME concordance with an explicitly named model.
 
 Writes real client-level correlations/overlaps into the specified directory.
+Uses the full two-class probability matrix for LIME and positive-class probability for SHAP.
 Use: python run_explanations.py --output results/explanations
 """
 from __future__ import annotations
